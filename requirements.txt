@@ -1,0 +1,50 @@
+pyrofork==2.3.45
+tgcrypto-pyrofork
+pymongo[srv]==4.11.1
+motor==3.7.0
+marshmallow==3.26.1
+umongo
+requests
+beautifulsoup4
+shortzy
+datetime
+pytz
+aiohttp
+
+# Master tools
+PyLeaves==1.0.2
+wikipedia 
+
+# Other tools
+opencv-python-headless==4.8.1.78
+python-dotenv==0.21.1
+humanize==4.6.0
+Pillow==9.4.0
+psutil==5.9.4
+numpy
+wheel
+ujson
+wget
+aiofiles
+dnspython==2.6.1
+python-decouple
+ffmpeg-python==0.2.0
+
+# Jinja and Scheduler
+jinja2
+apscheduler
+pyshorteners
+pyromod
+colorama
+
+# Text Matching Tools
+fuzzywuzzy
+python-Levenshtein
+
+# Additional Tools
+googletrans==3.1.0a0
+telegraph==2.2.0
+gTTS==2.3.1
+
+# Git-based Packages
+git+https://github.com/Joelkb/cinemagoer

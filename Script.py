@@ -4,10 +4,7 @@ class script(object):
 
 <b>🍿 Wᴇʟᴄᴏᴍᴇ Tᴏ Tʜᴇ Wᴏʀʟᴅ's Cᴏᴏʟᴇsᴛ Sᴇᴀʀᴄʜ Eɴɢɪɴᴇ!</b>
 
-<b>Here You Can Request Movie's, Just Sent</b>
-<b>Movie OR WebSeries Name With Proper</b>
-<b><a href='https://www.google.com/'>Google</a> Spelling..!!</b>
-"""
+<b>Here You Can Request Movie's, Just Sent</b> <b>Movie OR WebSeries Name With Proper</b> <b><a href='https://www.google.com/'>Google</a> Spelling..!!</b>"""
     GSTART_TXT = """🔍 Wᴇʟᴄᴏᴍᴇ Tᴏ Tʜᴇ Wᴏʀʟᴅ's Cᴏᴏʟᴇsᴛ Sᴇᴀʀᴄʜ Eɴɢɪɴᴇ!"""
     
     HELP_TXT = """<b>

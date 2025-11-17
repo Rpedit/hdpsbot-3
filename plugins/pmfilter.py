@@ -1339,14 +1339,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
         _, file_id = DreamxData.split(":")
         try:
             user_id = query.from_user.id
-            username =  query.from_user.mention 
+            username = query.from_user.mention
             log_msg = await client.send_cached_media(chat_id=LOG_CHANNEL, file_id=file_id,)
             fileName = {quote_plus(get_name(log_msg))}
             dreamx_stream = f"{URL}watch/{str(log_msg.id)}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
             dreamx_download = f"{URL}{str(log_msg.id)}/{quote_plus(get_name(log_msg))}?hash={get_hash(log_msg)}"
-            xo = await query.message.reply_text(f'🔎')
+            await query.answer(MSG_ALRT)
             await asyncio.sleep(1)
-            await xo.delete()
             await log_msg.reply_text(
                 text=f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ꜰᴏʀ ɪᴅ #{user_id} \n•• ᴜꜱᴇʀɴᴀᴍᴇ : {username} \n\n•• ᖴᎥᒪᗴ Nᗩᗰᗴ : {fileName}",
                 quote=True,
@@ -1364,12 +1363,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
                         InlineKeyboardButton('➕ Jᴏɪɴ Uᴘᴅᴀᴛᴇꜱ Cʜᴀɴɴᴇʟ ➕', url=UPDATE_CHNL_LNK)
                     ]
                 ])
-            )  
-            await asyncio.sleep(DELETE_TIME) 
+            )
+            await asyncio.sleep(DELETE_TIME)
             await dreamcinezone.delete()
             return
         except Exception as e:
-            print(e) 
+            print(e)
             await query.answer(f"⚠️ SOMETHING WENT WRONG STREAM LINK  \n\n{e}", show_alert=True)
             return
             
@@ -1937,20 +1936,27 @@ async def auto_filter(client, msg, spoll=False):
 
 async def ai_spell_check(chat_id, wrong_name):
     async def search_movie(wrong_name):
-        search_results = imdb.search_movie(wrong_name)
-        movie_list = [movie['title'] for movie in search_results]
-        return movie_list
+        try:
+            search_results = imdb.search_movie(wrong_name)
+            movie_list = [movie['title'] for movie in search_results]
+            return movie_list
+        except Exception as e:
+            print(f"Error in ai_spell_check: {e}")
+
     movie_list = await search_movie(wrong_name)
     if not movie_list:
         return
+
     for _ in range(5):
         closest_match = process.extractOne(wrong_name, movie_list)
         if not closest_match or closest_match[1] <= 80:
-            return 
+            return
+
         movie = closest_match[0]
         files, _, _ = await get_search_results(chat_id=chat_id, query=movie)
         if files:
             return movie
+
         movie_list.remove(movie)
 
 async def advantage_spell_chok(client, message):

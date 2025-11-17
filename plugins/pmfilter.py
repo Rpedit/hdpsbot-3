@@ -1350,14 +1350,14 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 text=f"•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ꜰᴏʀ ɪᴅ #{user_id} \n•• ᴜꜱᴇʀɴᴀᴍᴇ : {username} \n\n•• ᖴᎥᒪᗴ Nᗩᗰᗴ : {fileName}",
                 quote=True,
                 disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Fᴀꜱᴛ Dᴏᴡɴʟᴏᴀᴅ 🚀", url=dreamx_download),  # we download Link
-                                                    InlineKeyboardButton('🖥️ Wᴀᴛᴄʜ Oɴʟɪɴᴇ 🖥️', url=dreamx_stream)]])  # web stream Link
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Dᴏᴡɴʟᴏᴀᴅ 🚀", url=dreamx_download),  # we download Link
+                                                    InlineKeyboardButton('🖥️ Wᴀᴛᴄʜ 🖥️', url=dreamx_stream)]])  # web stream Link
             )
             dreamcinezone = await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup([
                     [
-                        InlineKeyboardButton("🚀 Fᴀꜱᴛ Dᴏᴡɴʟᴏᴀᴅ 🚀", url=dreamx_download),
-                        InlineKeyboardButton('🖥️ Wᴀᴛᴄʜ Oɴʟɪɴᴇ 🖥️', url=dreamx_stream)
+                        InlineKeyboardButton("🚀 Dᴏᴡɴʟᴏᴀᴅ 🚀", url=dreamx_download),
+                        InlineKeyboardButton('🖥️ Wᴀᴛᴄʜ 🖥️', url=dreamx_stream)
                     ],
                     [
                         InlineKeyboardButton('➕ Jᴏɪɴ Uᴘᴅᴀᴛᴇꜱ Cʜᴀɴɴᴇʟ ➕', url=UPDATE_CHNL_LNK)

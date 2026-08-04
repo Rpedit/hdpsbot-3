@@ -89,27 +89,9 @@ async def pm_text(bot, message):
         return
     try:
         await mdb.update_top_messages(user_id, content)
-        pm_search = await db.pm_search_status(bot_id)
-        if pm_search:
-            await auto_filter(bot, message)
-        else:
-            await message.reply_text(
-                text=(
-                    f"<b>👋 Hᴇʏ {user}!</b>\n\n"
-                    "Yᴏᴜ ᴄᴀɴ sᴇᴀʀᴄʜ ꜰᴏʀ ᴍᴏᴠɪᴇs ᴏɴʟʏ ᴏɴ ᴏᴜʀ Mᴏᴠɪᴇ Gʀᴏᴜᴘ.\n"
-                    "Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀʟʟᴏᴡᴇᴅ ᴛᴏ sᴇᴀʀᴄʜ ꜰᴏʀ ᴍᴏᴠɪᴇs ᴏɴ Dɪʀᴇᴄᴛ Bᴏᴛ.\n"
-                    "Pʟᴇᴀsᴇ ᴊᴏɪɴ ᴏᴜʀ ᴍᴏᴠɪᴇ ɢʀᴏᴜᴘ ʙʏ ᴄʟɪᴄᴋɪɴɢ ᴏɴ ᴛʜᴇ <b>Rᴇǫᴜᴇsᴛ Hᴇʀᴇ</b> ʙᴜᴛᴛᴏɴ 👇\n\n"
-                ),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📩 Rᴇǫᴜᴇsᴛ Hᴇʀᴇ ", url=GRP_LNK)]]))
-            await bot.send_message( chat_id=LOG_CHANNEL,
-                text=(
-                    f"<b>#𝐏𝐌_𝐌𝐒𝐆\n\n"
-                    f"👤 Nᴀᴍᴇ : {user}\n"
-                    f"🆔 ID : {user_id}\n"
-                    f"💬 Mᴇssᴀɢᴇ : {content}</b>"
-                )
-            )
-    except Exception:
-        pass
+        await auto_filter(bot, message)
+    except Exception as e:
+        logger.exception(e)
 
 @Client.on_callback_query(filters.regex(r"^reffff"))
 async def refercall(bot, query):
@@ -175,9 +157,13 @@ async def next_page(bot, query):
         )
         btn.insert(0, 
             [
-            #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
-            InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
-           
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
+                InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
             ]
         )
 
@@ -190,8 +176,13 @@ async def next_page(bot, query):
                 InlineKeyboardButton("Sᴇᴀsᴏɴ",  callback_data=f"seasons#{key}")
             ]
         )
+        btn.insert(0, 
+            [
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
         btn.insert(0, [
-            #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
             InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}") 
         ])
     try:
@@ -299,7 +290,7 @@ async def advantage_spoll_choker(bot, query):
         await asyncio.sleep(10)
         await k.delete()
                 
-#Qualities 
+# Qualities 
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
     try:
@@ -308,8 +299,6 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
     except:
         pass
     _, key = query.data.split("#")
-    search = FRESH.get(key)
-    search = search.replace(' ', '_')
     btn = []
     for i in range(0, len(QUALITIES)-1, 2):
         btn.append([InlineKeyboardButton(text=QUALITIES[i].title(),callback_data=f"fq#{QUALITIES[i].lower()}#{key}"),
@@ -317,7 +306,6 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
     btn.insert(0, 
                [InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊", callback_data="ident")],)
     req = query.from_user.id
-    offset = 0
     btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"fq#homepage#{key}")])
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
  
@@ -325,14 +313,16 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^fq#"))
 async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     _, qual, key = query.data.split("#")
-    curr_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
-    search = FRESH.get(key)
-    search = search.replace("_", " ")
-    baal = qual in search
-    if baal:
-        search = search.replace(qual, "")
+    base_search = BUTTONS.get(key) or FRESH.get(key, "")
+    
+    if qual == "homepage":
+        search = FRESH.get(key, "")
     else:
-        search = search
+        if qual.lower() not in base_search.lower():
+            search = f"{base_search} {qual}"
+        else:
+            search = base_search
+
     req = query.from_user.id
     chat_id = query.message.chat.id
     message = query.message
@@ -341,13 +331,13 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
             return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",show_alert=True,)
     except:
         pass
-    if qual != "homepage":
-        search = f"{search} {qual}" 
-    BUTTONS[key] = search
+
     files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
     if not files:
         await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫", show_alert=1)
         return
+
+    BUTTONS[key] = search
     temp.GETALL[key] = files
     settings = await get_settings(message.chat.id)
     if settings.get('button'):
@@ -366,7 +356,12 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
         )
         btn.insert(0, 
             [
-                #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
                 InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
             ])
     else:
@@ -380,31 +375,31 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
         )
         btn.insert(0, 
             [
-                #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
                 InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
-            
             ])
     if offset != "":
         try:
             if settings['max_btn']:
                 btn.append(
-
                     [InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/10)}",callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟",callback_data=f"next_{req}_{key}_{offset}")]
                 )
             else:
                 btn.append(
-
                     [InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/int(MAX_B_TN))}",callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟",callback_data=f"next_{req}_{key}_{offset}")]
                 )
         except KeyError:
             await save_group_settings(query.message.chat.id, 'max_btn', True)
             btn.append(
-
                 [InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/10)}",callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟",callback_data=f"next_{req}_{key}_{offset}")]
             )
     else:
         btn.append(
-
             [InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",callback_data="pages")]
         )
     if not settings["button"]:
@@ -423,7 +418,7 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
             pass
     await query.answer()
 
-#languages
+# Languages
 
 @Client.on_callback_query(filters.regex(r"^languages#"))
 async def languages_cb_handler(client: Client, query: CallbackQuery):
@@ -433,12 +428,9 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
     except:
         pass
     _, key = query.data.split("#")
-    search = FRESH.get(key)
-    search = search.replace(' ', '_')
     btn = []
     for i in range(0, len(LANGUAGES)-1, 2):
         btn.append([
-
             InlineKeyboardButton(text=LANGUAGES[i].title(),callback_data=f"fl#{LANGUAGES[i].lower()}#{key}"),
             InlineKeyboardButton(text=LANGUAGES[i+1].title(),callback_data=f"fl#{LANGUAGES[i+1].lower()}#{key}"),
         ])
@@ -447,7 +439,6 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊", callback_data="ident")
         ])
     req = query.from_user.id
-    offset = 0
     btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ​↭", callback_data=f"fl#homepage#{key}")])
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     
@@ -455,14 +446,16 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^fl#"))
 async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     _, lang, key = query.data.split("#")
-    curr_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
-    search = FRESH.get(key)
-    search = search.replace("_", " ")
-    baal = lang in search
-    if baal:
-        search = search.replace(lang, "")
+    base_search = BUTTONS.get(key) or FRESH.get(key, "")
+
+    if lang == "homepage":
+        search = FRESH.get(key, "")
     else:
-        search = search
+        if lang.lower() not in base_search.lower():
+            search = f"{base_search} {lang}"
+        else:
+            search = base_search
+
     req = query.from_user.id
     chat_id = query.message.chat.id
     message = query.message
@@ -471,13 +464,13 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",show_alert=True,)
     except:
         pass
-    if lang != "homepage":
-        search = f"{search} {lang}" 
-    BUTTONS[key] = search
+
     files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
     if not files:
         await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫", show_alert=1)
         return
+
+    BUTTONS[key] = search
     temp.GETALL[key] = files
     settings = await get_settings(message.chat.id)
     if settings.get('button'):
@@ -496,7 +489,12 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
         )
         btn.insert(0, 
             [
-                #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
                 InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
             ]
         )
@@ -510,7 +508,12 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             ])
         btn.insert(0, 
             [
-                #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
                 InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}") 
             ])
     if offset != "":
@@ -549,34 +552,32 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             pass
     await query.answer()
     
-    
+# Seasons
 
 @Client.on_callback_query(filters.regex(r"^seasons#"))
 async def seasons_cb_handler(client: Client, query: CallbackQuery):
     try:
         if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
             return await query.answer(
-                f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ…",
+                f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ…",
                 show_alert=True,
             )
     except Exception:
         pass
     _, key = query.data.split("#")
-    search = FRESH.get(key).replace(" ", "_")        
-    req   = query.from_user.id   
-    offset = 0                    
+    req = query.from_user.id   
     btn: list[list[InlineKeyboardButton]] = []
     for i in range(0, len(SEASONS) - 1, 2):
         btn.append([
-            InlineKeyboardButton(f"Season {SEASONS[i][1:]}", callback_data=f"fs#{SEASONS[i].lower()}#{key}"),
-            InlineKeyboardButton(f"Season {SEASONS[i+1][1:]}", callback_data=f"fs#{SEASONS[i+1].lower()}#{key}")
+            InlineKeyboardButton(f"Season {SEASONS[i][1:]}" if SEASONS[i].startswith("S") else SEASONS[i].title(), callback_data=f"fs#{SEASONS[i].lower()}#{key}"),
+            InlineKeyboardButton(f"Season {SEASONS[i+1][1:]}" if SEASONS[i+1].startswith("S") else SEASONS[i+1].title(), callback_data=f"fs#{SEASONS[i+1].lower()}#{key}")
         ])
 
     btn.insert(
         0,
-        [InlineKeyboardButton("⇊ ꜱᴇʟᴇᴄᴛ ꜱᴇᴀꜱᴏɴ ⇊", callback_data="ident")],
+        [InlineKeyboardButton("⇊ ꜱᴇʟᴇᴄᴛ ꜱᴇᴀꜱᴏɴ ⇊", callback_data="ident")],
     )
-    btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ​↭", callback_data=f"next_{req}_{key}_{offset}")])
+    btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ​↭", callback_data=f"fs#homepage#{key}")])
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     await query.answer()
 
@@ -584,17 +585,21 @@ async def seasons_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^fs#"))
 async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
     _, season_tag, key = query.data.split("#")
-    search = FRESH.get(key).replace("_", " ")
+    base_search = BUTTONS.get(key) or FRESH.get(key, "")
     season_tag = season_tag.lower()
+    
     if season_tag == "homepage":
-        search_final = search
-        query_input = search_final
+        query_input = FRESH.get(key, "")
+        search_final = query_input
     else:
-        season_number = int(season_tag[1:])
-        query_input = generate_season_variations(search, season_number)
-        search_final = " | ".join(query_input)
+        try:
+            season_number = int(season_tag.replace('s', '').replace('season ', ''))
+            query_input = generate_season_variations(base_search, season_number)
+            search_final = " | ".join(query_input) if isinstance(query_input, list) else query_input
+        except:
+            query_input = f"{base_search} {season_tag}"
+            search_final = query_input
 
-    BUTTONS[key] = search
     try:
         if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
             return await query.answer("⚠️ Not your request", show_alert=True)
@@ -607,6 +612,7 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
     if not files:
         return await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ꜰᴏᴜɴᴅ 🚫", show_alert=True)
 
+    BUTTONS[key] = search_final
     temp.GETALL[key] = files
     settings = await get_settings(chat_id)
     btn: list[list[InlineKeyboardButton]] = []
@@ -633,7 +639,13 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
     btn.insert(
         0,
         [
-            #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 Aᴅꜱ ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+            InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+            InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+        ],
+    )
+    btn.insert(
+        0,
+        [
             InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}"),
         ],
     )
@@ -643,7 +655,6 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
                     btn.append(
                         [InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/10)}",callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟",callback_data=f"next_{req}_{key}_{n_offset}")]
                     )
-
                 else:
                     btn.append(
                         [InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/int(MAX_B_TN))}",callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟",callback_data=f"next_{req}_{key}_{n_offset}")]
@@ -656,7 +667,7 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
     else:
         n_offset = 0
         btn.append(
-            [InlineKeyboardButton("↭  ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")]
+            [InlineKeyboardButton("↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")]
         )
     if not settings.get("button"):
         curr_time = datetime.now(pytz.timezone("Asia/Kolkata")).time()
@@ -666,7 +677,7 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
             seconds=curr_time.second + curr_time.microsecond / 1_000_000,
         )
         remaining_seconds = f"{time_difference.total_seconds():.2f}"
-        cap = await get_cap(settings, remaining_seconds, files, query, total_results, search)
+        cap = await get_cap(settings, remaining_seconds, files, query, total_results, base_search)
 
         try:
             await query.message.edit_text(
@@ -681,6 +692,159 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
             await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
         except MessageNotModified:
             pass
+    await query.answer()
+
+# Episodes
+
+@Client.on_callback_query(filters.regex(r"^episodes#"))
+async def episodes_cb_handler(client: Client, query: CallbackQuery):
+    try:
+        if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
+            return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
+    except:
+        pass
+    _, key = query.data.split("#")
+    btn = []
+    for i in range(0, len(EPISODES)-1, 3):
+        btn.append([
+            InlineKeyboardButton(text=EPISODES[i], callback_data=f"fe#{EPISODES[i].lower()}#{key}"),
+            InlineKeyboardButton(text=EPISODES[i+1], callback_data=f"fe#{EPISODES[i+1].lower()}#{key}"),
+            InlineKeyboardButton(text=EPISODES[i+2], callback_data=f"fe#{EPISODES[i+2].lower()}#{key}")
+        ])
+    btn.insert(0, [InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ᴇᴘɪꜱᴏᴅᴇ ⇊", callback_data="ident")])
+    btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"fe#homepage#{key}")])
+    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    await query.answer()
+
+@Client.on_callback_query(filters.regex(r"^fe#"))
+async def filter_episodes_cb_handler(client: Client, query: CallbackQuery):
+    _, ep, key = query.data.split("#")
+    base_search = BUTTONS.get(key) or FRESH.get(key, "")
+    
+    if ep == "homepage":
+        search = FRESH.get(key, "")
+    else:
+        if ep.lower() not in base_search.lower():
+            search = f"{base_search} {ep}"
+        else:
+            search = base_search
+
+    req = query.from_user.id
+    chat_id = query.message.chat.id
+    message = query.message
+    try:
+        if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
+            return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
+    except:
+        pass
+
+    files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+    if not files:
+        return await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫", show_alert=1)
+
+    BUTTONS[key] = search
+    temp.GETALL[key] = files
+    settings = await get_settings(message.chat.id)
+    btn = []
+    if settings.get('button'):
+        btn.extend([
+            [InlineKeyboardButton(text=f" {get_size(file.file_size)} ≽ " + clean_filename(file.file_name), callback_data=f'file#{file.file_id}')]
+            for file in files
+        ])
+    btn.insert(0, [
+        InlineKeyboardButton('Qᴜᴀʟɪᴛʏ', callback_data=f"qualities#{key}"),
+        InlineKeyboardButton("Lᴀɴɢᴜᴀɢᴇ", callback_data=f"languages#{key}"),
+        InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
+    ])
+    btn.insert(0, [
+        InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+        InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+    ])
+    btn.insert(0, [InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")])
+    
+    if offset != "":
+        btn.append([InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")])
+    else:
+        btn.append([InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+    
+    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    await query.answer()
+
+# Years
+
+@Client.on_callback_query(filters.regex(r"^years#"))
+async def years_cb_handler(client: Client, query: CallbackQuery):
+    try:
+        if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
+            return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
+    except:
+        pass
+    _, key = query.data.split("#")
+    btn = []
+    recent_years = YEARS[-12:] # Last 12 years (e.g. 2014-2025)
+    for i in range(0, len(recent_years)-1, 3):
+        btn.append([
+            InlineKeyboardButton(text=recent_years[i], callback_data=f"fy#{recent_years[i]}#{key}"),
+            InlineKeyboardButton(text=recent_years[i+1], callback_data=f"fy#{recent_years[i+1]}#{key}"),
+            InlineKeyboardButton(text=recent_years[i+2], callback_data=f"fy#{recent_years[i+2]}#{key}")
+        ])
+    btn.insert(0, [InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ʏᴇᴀʀ ⇊", callback_data="ident")])
+    btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"fy#homepage#{key}")])
+    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    await query.answer()
+
+@Client.on_callback_query(filters.regex(r"^fy#"))
+async def filter_years_cb_handler(client: Client, query: CallbackQuery):
+    _, yr, key = query.data.split("#")
+    base_search = BUTTONS.get(key) or FRESH.get(key, "")
+    
+    if yr == "homepage":
+        search = FRESH.get(key, "")
+    else:
+        if yr not in base_search:
+            search = f"{base_search} {yr}"
+        else:
+            search = base_search
+
+    req = query.from_user.id
+    chat_id = query.message.chat.id
+    message = query.message
+    try:
+        if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
+            return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
+    except:
+        pass
+
+    files, offset, total_results = await get_search_results(chat_id, search, offset=0, filter=True)
+    if not files:
+        return await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫", show_alert=1)
+
+    BUTTONS[key] = search
+    temp.GETALL[key] = files
+    settings = await get_settings(message.chat.id)
+    btn = []
+    if settings.get('button'):
+        btn.extend([
+            [InlineKeyboardButton(text=f" {get_size(file.file_size)} ≽ " + clean_filename(file.file_name), callback_data=f'file#{file.file_id}')]
+            for file in files
+        ])
+    btn.insert(0, [
+        InlineKeyboardButton('Qᴜᴀʟɪᴛʏ', callback_data=f"qualities#{key}"),
+        InlineKeyboardButton("Lᴀɴɢᴜᴀɢᴇ", callback_data=f"languages#{key}"),
+        InlineKeyboardButton("Sᴇᴀsᴏɴ", callback_data=f"seasons#{key}")
+    ])
+    btn.insert(0, [
+        InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+        InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+    ])
+    btn.insert(0, [InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")])
+    
+    if offset != "":
+        btn.append([InlineKeyboardButton("ᴘᴀɢᴇ", callback_data="pages"), InlineKeyboardButton(text=f"1/{math.ceil(int(total_results)/10)}", callback_data="pages"), InlineKeyboardButton(text="ɴᴇxᴛ ⋟", callback_data=f"next_{req}_{key}_{offset}")])
+    else:
+        btn.append([InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+    
+    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     await query.answer()
 
                               
@@ -1413,7 +1577,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     elif query.data == "donation":
         buttons = [[
-            InlineKeyboardButton('🌲 Sᴇɴᴅ Dᴏɴᴀᴛᴇ Sᴄʀᴇᴇɴsʜᴏᴛ Hᴇʀᴇ', url=OWNER_LNK)
+            InlineKeyboardButton('🌲 Sᴇɴᴅ Dᴏɴᴀᴛᴇ Sᴄʀᴇᴇnsʜᴏᴛ Hᴇʀᴇ', url=OWNER_LNK)
         ],[
             InlineKeyboardButton('⇍ ʙᴀᴄᴋ ⇏', callback_data='about')
         ]]
@@ -1476,7 +1640,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             else:            
                 await db.give_free_trial(user_id)
                 await query.message.reply_text(
-                    text="<b>🥳 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴꜱ\n\n🎉 ʏᴏᴜ ᴄᴀɴ ᴜsᴇ ꜰʀᴇᴇ ᴛʀᴀɪʟ ꜰᴏʀ <u>5 ᴍɪɴᴜᴛᴇs</u> ꜰʀᴏᴍ ɴᴏᴡ !</b>",
+                    text="<b>🥳 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏns\n\n🎉 ʏᴏᴜ ᴄᴀɴ ᴜsᴇ ꜰʀᴇᴇ ᴛʀᴀɪʟ ꜰᴏʀ <u>5 ᴍɪɴᴜᴛes</u> ꜰᴏʀ ɴᴏᴡ !</b>",
                     quote=False,
                     disable_web_page_preview=True,                  
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💸 ᴄʜᴇᴄᴋᴏᴜᴛ ᴘʀᴇᴍɪᴜᴍ ᴘʟᴀɴꜱ 💸", callback_data='seeplans')]]))
@@ -1741,7 +1905,7 @@ async def auto_filter(client, msg, spoll=False):
             files, offset, total_results = await get_search_results(message.chat.id ,search, offset=0, filter=True)
             settings = await get_settings(message.chat.id)
             if not files:
-                if settings["spell_check"]:
+                if settings.get("spell_check", True):
                     ai_sts = await m.edit('🔎 ᴄʜᴇᴄᴋɪɴɢ ʏᴏᴜʀ ꜱᴘᴇʟʟɪɴɢ, ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ...')
                     is_misspelled = await ai_spell_check(chat_id = message.chat.id,wrong_name=search)
                     if is_misspelled:
@@ -1788,9 +1952,13 @@ async def auto_filter(client, msg, spoll=False):
         )
         btn.insert(0, 
             [
-                #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
                 InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
-                
             ])
     else:
         btn = []
@@ -1803,7 +1971,12 @@ async def auto_filter(client, msg, spoll=False):
         )
         btn.insert(0, 
             [
-                #InlineKeyboardButton("⚜️ 𝐑𝐞𝐦𝐨𝐯𝐞 𝐚𝐝𝐬 ⚜️", url=f"https://t.me/{temp.U_NAME}?start=premium"),
+                InlineKeyboardButton('Eᴘɪꜱᴏᴅᴇ', callback_data=f"episodes#{key}"),
+                InlineKeyboardButton('Yᴇᴀʀ', callback_data=f"years#{key}")
+            ]
+        )
+        btn.insert(0, 
+            [
                 InlineKeyboardButton("📥 Sᴇɴᴅ Aʟʟ 📥", callback_data=f"sendfiles#{key}")
             ])
 
@@ -1826,7 +1999,7 @@ async def auto_filter(client, msg, spoll=False):
     else:
         btn.append([InlineKeyboardButton(text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",callback_data="pages")])
 
-    imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
+    imdb = await get_poster(search, file=(files[0]).file_name) if settings.get("imdb", False) else None
 
     cur_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
     time_difference = timedelta(hours=cur_time.hour, minutes=cur_time.minute, seconds=(cur_time.second+(cur_time.microsecond/1000000))) - timedelta(hours=curr_time.hour, minutes=curr_time.minute, seconds=(curr_time.second+(curr_time.microsecond/1000000)))
@@ -1883,7 +2056,7 @@ async def auto_filter(client, msg, spoll=False):
             hehe = await message.reply_photo(photo=imdb.get('poster'), caption=cap, reply_markup=InlineKeyboardMarkup(btn), parse_mode=enums.ParseMode.HTML)
             await m.delete()
             try:
-                if settings['auto_delete']:
+                if settings.get('auto_delete', True):
                     await asyncio.sleep(DELETE_TIME)
                     await hehe.delete()
                     await message.delete()
@@ -1898,7 +2071,7 @@ async def auto_filter(client, msg, spoll=False):
             hmm = await message.reply_photo(photo=poster, caption=cap, reply_markup=InlineKeyboardMarkup(btn), parse_mode=enums.ParseMode.HTML)
             await m.delete()
             try:
-               if settings['auto_delete']:
+               if settings.get('auto_delete', True):
                     await asyncio.sleep(DELETE_TIME)
                     await hmm.delete()
                     await message.delete()
@@ -1911,7 +2084,7 @@ async def auto_filter(client, msg, spoll=False):
             logger.exception(e)
             dxb = await message.reply_text(text=cap, reply_markup=InlineKeyboardMarkup(btn), parse_mode=enums.ParseMode.HTML)
             try:
-                if settings['auto_delete']:
+                if settings.get('auto_delete', True):
                     await asyncio.sleep(DELETE_TIME)
                     await dxb.delete()
                     await message.delete()
@@ -1924,7 +2097,7 @@ async def auto_filter(client, msg, spoll=False):
         dxb = await message.reply_text(text=cap, reply_markup=InlineKeyboardMarkup(btn), disable_web_page_preview=True, parse_mode=enums.ParseMode.HTML)
         await m.delete()
         try:
-            if settings['auto_delete']:
+            if settings.get('auto_delete', True):
                 await asyncio.sleep(DELETE_TIME)
                 await dxb.delete()
                 await message.delete()
@@ -2003,4 +2176,3 @@ async def advantage_spell_chok(client, message):
         await message.delete()
     except:
         pass
-

@@ -12,11 +12,11 @@ from database.config_db import mdb
 from Script import script
 from info import *
 
-# IMDb / Cinemagoer Initialization (Crash-Safe Fix)
+# IMDb / Cinemagoer Initialization (Fixed)
 try:
     from imdb import Cinemagoer
-    imdb = Cinemagoer('http')
-except Exception as e:
+    imdb = Cinemagoer()
+except Exception:
     try:
         from imdb import IMDb
         imdb = IMDb()
@@ -241,7 +241,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
             'rating': movie.get('rating', ''),
             'url': f"https://www.imdb.com/title/tt{movie.movieID}"
         }
-    except Exception as e:
+    except Exception:
         return {} if not bulk else []
 
 async def get_cap(settings, remaining_seconds, files, query, total_results, search):

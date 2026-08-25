@@ -62,7 +62,7 @@ AUTH_CHANNELS = [int(channels_id) for channels_id in environ.get('AUTH_CHANNELS'
 # Payment Configuration
 # ============================
 QR_CODE = environ.get('QR_CODE', 'https://graph.org/file/1b2471aaeb5a7f4bb5266-cddfd202f6de756926.jpg')    # QR code image for payments
-OWNER_UPI_ID = environ.get('OWNER_UPI_ID', 'ɴᴏ ᴀᴠᴀɪʟᴀʙʟᴇ ʀɪɢʜᴛ ɴᴏᴡ')    # Owner UPI ID for payments
+OWNER_UPI_ID = environ.get('OWNER_UPI_ID', 'ɴᴏ ᴀᴠᴀɪʟᴀʙʟᴇ ʀɪɢʜᴛ ɴᴏw')    # Owner UPI ID for payments
 
 STAR_PREMIUM_PLANS = {
     10: "7day",
@@ -73,15 +73,11 @@ STAR_PREMIUM_PLANS = {
 }  # Premium plans with their respective durations in days
 
 # ============================
-# MongoDB Configuration
+# Turso (libSQL) Configuration
 # ============================
-DATABASE_URI = environ.get('DATABASE_URI', "")  # MongoDB URI for the database
-DATABASE_NAME = environ.get('DATABASE_NAME', "rpeditz") # Database name (default: cluster)
-COLLECTION_NAME = environ.get('COLLECTION_NAME', 'RP_EDITZ') # Collection name (default: dreamcinezone_files)
+LIBSQL_URL = environ.get('LIBSQL_URL', 'libsql://movie-db-rpedit.aws-ap-south-1.turso.io')
+LIBSQL_AUTH_TOKEN = environ.get('LIBSQL_AUTH_TOKEN', 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODc0MDY4NjQsImlkIjoiMDFhMDI5YmEtNDAwMS03M2VhLTg3NzgtZjgxNjY0NjFjNWE5Iiwia2lkIjoicm5TUVdMeFNSUWxERkxfUTgwZzhzYi1haE81emZuM1lMR2cwQzhVSDZ3TSIsInJpZCI6IjBhOGQwOWIwLWI0MTMtNGEwMy1iZDNlLTExZDFjOTc1NGFmNiJ9.dJaBdMA-5CmlwLM-BSEpIEHmTquq1OO4hv1Y24WGO5IL46br2lC1VbCjeQjwR3TjFN0WKWO97E6S8GyC2y_yCw')
 
-# If MULTIPLE_DB Is True Then Fill DATABASE_URI2 Value Else You Will Get Error.
-MULTIPLE_DB = is_enabled(os.environ.get('MULTIPLE_DB', "False"), False) # Type True For Turn On MULTIPLE DB FUNTION 
-DATABASE_URI2 = environ.get('DATABASE_URI2', "")  # MongoDB URI for the second database (if MULTIPLE_DB is True)
 # ============================
 # Movie Notification & Update Settings
 # ============================
@@ -232,33 +228,24 @@ REACTIONS = ["🤝", "😇", "🤗", "😍", "👍", "🎅", "😐", "🥰", "�
 Bot_cmds = {
     "start": "Sᴛᴀʀᴛ Mᴇ Bᴀʙʏ",
     "stats": "Gᴇᴛ Bᴏᴛ Sᴛᴀᴛs",
-    "alive": " Cʜᴇᴄᴋ Bᴏᴛ Aʟɪᴠᴇ ᴏʀ Nᴏᴛ ",
+    "alive": " Cʜᴇᴄᴋ Bᴏᴛ Aʟɪᴠᴇ ᴏʀ Nᴏْت ",
     "settings": "ᴄʜᴀɴɢᴇ sᴇᴛᴛɪɴɢs",
     "id": "ɢᴇᴛ ɪᴅ ᴛᴇʟᴇɢʀᴀᴍ ",
     "info": "Gᴇᴛ Usᴇʀ ɪɴғᴏ ",
     "del_msg": "ʀᴇᴍᴏᴠᴇ ғɪʟᴇ ɴᴀᴍᴇ ᴄᴏʟʟᴇᴄᴛɪᴏɴ ɴᴏтɪғɪᴄᴀᴛɪᴏɴ...",
-    "movie_update": "ᴏɴ ᴏғғ ᴀᴄᴄᴏʀᴅɪɴɢ ʏᴏᴜʀ ɴᴇᴇᴅᴇᴅ...",
-    "pm_search": "ᴘᴍ sᴇᴀʀᴄʜ ᴏɴ ᴏғғ ᴀᴄᴄᴏʀᴅɪɴɢ ʏᴏᴜʀ ɴᴇᴇᴅᴇᴅ...",
+    "movie_update": "ᴏɴ ᴏғғ ᴀᴄᴄᴏʀᴅɪɴɢ ʏᴏᴜʀ ɴᴇᴇᴅed...",
+    "pm_search": "ᴘᴍ sᴇᴀʀᴄʜ ᴏɴ ᴏғғ ᴀᴄᴄᴏʀᴅɪɴɢ ʏᴏᴜʀ ɴᴇᴇᴅed...",
     "trendlist": "Gᴇᴛ Tᴏᴘ Tʀᴀɴᴅɪɴɢ Sᴇᴀʀᴄʜ Lɪsᴛ",
     "broadcast": "ʙʀᴏᴀᴅᴄᴀꜱᴛ ᴀ ᴍᴇꜱꜱᴀɢᴇ ᴛᴏ ᴀʟʟ ᴜꜱᴇʀꜱ.",
     "grp_broadcast": "ʙʀᴏᴀᴅᴄᴀsᴛ ᴀ ᴍᴇssᴀɢᴇ ᴛᴏ ᴀʟʟ ᴄᴏɴɴᴇᴄᴛᴇᴅ ɢʀᴏᴜᴘs",
     "send": "ꜱᴇɴᴅ ᴍᴇꜱꜱᴀɢᴇ ᴛᴏ ᴀ ᴘᴀʀᴛɪᴄᴜʟᴀʀ ᴜꜱᴇʀ.",
-    "add_premium": "ᴀᴅᴅ ᴀɴʏ ᴜꜱᴇʀ ᴛᴏ ᴘʀᴇᴍɪᴜᴍ.",
+    "add_premium": "ᴀᴅᴅ ᴀɴʏ ᴜꜱᴇʀ ᴛᴏ ᴘʀᴇᴍɪᴜﾑ.",
     "remove_premium": "ʀᴇᴍᴏᴠᴇ ᴀɴʏ ᴜꜱᴇʀ ꜰʀᴏᴍ ᴘʀᴇᴍɪᴜᴍ.",
     "premium_users": "ɢᴇᴛ ʟɪꜱᴛ ᴏꜰ ᴘʀᴇᴍɪᴜᴍ ᴜꜱᴇʀꜱ.",
     "restart": "ʀᴇꜱᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ.",
     "group_cmd": "ɢʀᴏᴜᴘ ᴄᴏᴍᴍᴀɴᴅ ʟɪsᴛ",
     "admin_cmd": "ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs ʟɪsᴛ."
 }
-
-
-#Don't Change Anything Here
-if MULTIPLE_DB == False:
-    DATABASE_URI = DATABASE_URI
-    DATABASE_URI2 = DATABASE_URI
-else:
-    DATABASE_URI = DATABASE_URI
-    DATABASE_URI2 = DATABASE_URI2
 
 # ============================
 # Logs Configuration
@@ -269,5 +256,4 @@ LOG_STR += ("P_TTI_SHOW_OFF found, Users will be redirected to send /start to Bo
 LOG_STR += ("BUTTON_MODE is found, filename and file size will be shown in a single button instead of two separate buttons.\n" if BUTTON_MODE else "BUTTON_MODE is disabled, filename and file size will be shown as different buttons.\n")
 LOG_STR += (f"CUSTOM_FILE_CAPTION enabled with value {CUSTOM_FILE_CAPTION}, your files will be sent along with this customized caption.\n" if CUSTOM_FILE_CAPTION else "No CUSTOM_FILE_CAPTION Found, Default captions of file will be used.\n")
 LOG_STR += ("Long IMDB storyline enabled." if LONG_IMDB_DESCRIPTION else "LONG_IMDB_DESCRIPTION is disabled, Plot will be shorter.\n")
-LOG_STR += ("Spell Check Mode is enabled, bot will be suggesting related movies if movie name is misspelled.\n" if SPELL_CHECK_REPLY else "Spell Check Mode is disabled.\n")
-
+LOG_STR += ("Spell Check Mode is enabled, bot will be suggesting related movies if movie name is misspelled.\n" if SPELL_CHECK_REPLY else "Spell Check Mode is logged/disabled.\n")

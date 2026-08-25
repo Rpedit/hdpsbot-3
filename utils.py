@@ -22,8 +22,8 @@ BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
 
-# Fixed Cinemagoer initialization with correct sqlite URI format
-imdb = Cinemagoer(accessSystem='sql', uri='sqlite:///cinemagoer.db') 
+# Correct Cinemagoer initialization with 's3' access system and 3 slashes for sqlite URI
+imdb = Cinemagoer('s3', uri='sqlite:///cinemagoer.db') 
 
 BANNED = {}
 SMART_OPEN = '“'

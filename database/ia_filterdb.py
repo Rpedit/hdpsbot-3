@@ -20,16 +20,16 @@ class TursoDB:
         self.auth_token = auth_token
         self._client = None
 
-    @property
-    def client(self):
+    async def get_client(self):
         if self._client is None:
             self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
-            self._create_tables()
+            await self._create_tables()
         return self._client
 
-    def _create_tables(self):
+    async def _create_tables(self):
         try:
-            self._client.execute("""
+            client = self._client
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS media (
                     file_id TEXT PRIMARY KEY,
                     file_ref TEXT,
@@ -41,7 +41,7 @@ class TursoDB:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS media2 (
                     file_id TEXT PRIMARY KEY,
                     file_ref TEXT,
@@ -85,10 +85,12 @@ async def save_file(media):
     table_name = "media"
     target_db = "Primary"
     
+    client = await db_client.get_client()
+
     if MULTIPLE_DB:
         try:
-            res = db_client.client.execute("SELECT 1 FROM media WHERE file_id = ? LIMIT 1", (file_id,))
-            if list(res.rows):
+            res = await client.execute("SELECT 1 FROM media WHERE file_id = ? LIMIT 1", (file_id,))
+            if getattr(res, 'rows', None) and list(res.rows):
                 logger.info(f"[SKIP] '{file_name}' already in Primary DB.")
                 return False, 0
         except Exception as e:
@@ -97,7 +99,7 @@ async def save_file(media):
     caption_text = (media.caption.html if media.caption and INDEX_CAPTION else None)
 
     try:
-        db_client.client.execute(f"""
+        await client.execute(f"""
             INSERT OR IGNORE INTO {table_name} 
             (file_id, file_ref, file_name, file_size, file_type, mime_type, caption) 
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -127,6 +129,8 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
     else:
         search_terms = [query.strip()] if query.strip() else []
 
+    client = await db_client.get_client()
+
     if not search_terms:
         sql_query = "SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media"
         params = []
@@ -153,21 +157,24 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
         params.append(file_type)
 
     count_sql = sql_query.replace("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption", "SELECT COUNT(*)")
-    total_res = db_client.client.execute(count_sql, params)
-    total_results = list(total_res.rows)[0][0]
+    total_res = await client.execute(count_sql, params)
+    total_rows = getattr(total_res, 'rows', None) or []
+    total_results = total_rows[0][0] if total_rows else 0
 
     sql_query += " ORDER BY rowid DESC LIMIT ? OFFSET ?"
     params.extend([max_results, offset])
 
-    cursor1 = db_client.client.execute(sql_query, params)
-    files1 = [MediaRecord(row) for row in cursor1.rows]
+    cursor1 = await client.execute(sql_query, params)
+    rows1 = getattr(cursor1, 'rows', None) or []
+    files1 = [MediaRecord(row) for row in rows1]
 
     files = files1
     if MULTIPLE_DB:
         remaining = max_results - len(files1)
         if remaining > 0:
-            cursor2 = db_client.client.execute(sql_query.replace("FROM media", "FROM media2"), params)
-            files2 = [MediaRecord(row) for row in cursor2.rows]
+            cursor2 = await client.execute(sql_query.replace("FROM media", "FROM media2"), params)
+            rows2 = getattr(cursor2, 'rows', None) or []
+            files2 = [MediaRecord(row) for row in rows2]
             files = files1 + files2
 
     next_offset = offset + len(files)
@@ -191,16 +198,21 @@ async def get_bad_files(query, file_type=None, filter=False):
         params.append(file_type)
 
     sql += " ORDER BY rowid DESC"
-    cursor = db_client.client.execute(sql, params)
-    files = [MediaRecord(row) for row in cursor.rows]
+    client = await db_client.get_client()
+    cursor = await client.execute(sql, params)
+    rows = getattr(cursor, 'rows', None) or []
+    files = [MediaRecord(row) for row in rows]
     return files, len(files)
 
 async def get_file_details(query):
-    cursor = db_client.client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_id = ?", (query,))
-    filedetails = [MediaRecord(row) for row in cursor.rows]
+    client = await db_client.get_client()
+    cursor = await client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_id = ?", (query,))
+    rows = getattr(cursor, 'rows', None) or []
+    filedetails = [MediaRecord(row) for row in rows]
     if not filedetails and MULTIPLE_DB:
-        cursor2 = db_client.client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media2 WHERE file_id = ?", (query,))
-        filedetails = [MediaRecord(row) for row in cursor2.rows]
+        cursor2 = await client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media2 WHERE file_id = ?", (query,))
+        rows2 = getattr(cursor2, 'rows', None) or []
+        filedetails = [MediaRecord(row) for row in rows2]
     return filedetails
 
 def encode_file_id(s: bytes) -> str:
@@ -236,8 +248,10 @@ def unpack_new_file_id(new_file_id):
 
 async def dreamxbotz_fetch_media(limit: int) -> List[object]:
     try:
-        cursor = db_client.client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media ORDER BY rowid DESC LIMIT ?", (limit,))
-        files = [MediaRecord(row) for row in cursor.rows]
+        client = await db_client.get_client()
+        cursor = await client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media ORDER BY rowid DESC LIMIT ?", (limit,))
+        rows = getattr(cursor, 'rows', None) or []
+        files = [MediaRecord(row) for row in rows]
         return files
     except Exception as e:
         logger.error(f"Error in dreamxbotz_fetch_media: {e}")

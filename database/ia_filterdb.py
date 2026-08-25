@@ -56,7 +56,6 @@ class TursoDB:
         except Exception as e:
             logger.error(f"Media table creation error: {e}")
 
-# Turso DB object initialize karna (lazy-load)
 db_client = TursoDB(LIBSQL_URL, LIBSQL_AUTH_TOKEN)
 
 class MediaRecord:
@@ -68,6 +67,13 @@ class MediaRecord:
         self.file_type = row[4]
         self.mime_type = row[5]
         self.caption = row[6]
+
+# Compatibility classes taaki bot.py ya plugins me import error na aaye
+class Media:
+    pass
+
+class Media2:
+    pass
 
 async def save_file(media):
     """Save file in Turso database with duplicate checking."""
@@ -260,7 +266,7 @@ async def dreamxbotz_get_movies(limit: int = 20) -> List[str]:
     try:
         cursor = await dreamxbotz_fetch_media(limit * 2)
         results = set()
-        pattern = r"(?:s\d{1,2}|season\s*\d+|season\d+)(?:\s*combined)?(?:e\d{1,2}|episode\s*\d+)?\b"
+        pattern = r"(?:s\d{1,2}|season\s*\d+|season\s*\d+)(?:\s*combined)?(?:e\d{1,2}|episode\s*\d+)?\b"
         for file in cursor:
             file_name = getattr(file, "file_name", "")
             if not re.search(pattern, file_name, re.IGNORECASE):

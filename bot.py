@@ -1,4 +1,3 @@
-
 import sys
 import glob
 import importlib
@@ -59,12 +58,13 @@ async def dreamxbotz_start():
     b_users, b_chats = await db.get_banned()
     temp.BANNED_USERS = b_users
     temp.BANNED_CHATS = b_chats
-    await Media.ensure_indexes()
+    
+    # Turso / SQLite ke liye ensure_indexes ki zaroorat nahi hai
     if MULTIPLE_DB:
-        await Media2.ensure_indexes()
         print("Multiple Database Mode On. Now Files Will Be Save In Second DB If First DB Is Full")
     else:
         print("Single DB Mode On ! Files Will Be Save In First Database")
+        
     me = await dreamxbotz.get_me()
     temp.ME = me.id
     temp.U_NAME = me.username

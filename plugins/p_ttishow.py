@@ -164,9 +164,9 @@ async def get_stats(bot, message):
         totl_chats = await db.total_chat_count()
         premium = await db.all_premium_users()
         
-        # Turso client se total media files count karna
+        # Turso client se total media files count karna (awaited properly)
         client = libsql_client.create_client(url=LIBSQL_URL, auth_token=LIBSQL_AUTH_TOKEN)
-        res = client.execute("SELECT COUNT(*) FROM media")
+        res = await client.execute("SELECT COUNT(*) FROM media")
         file1 = list(res.rows)[0][0]
         
         DB_SIZE = 512 * 1024 * 1024

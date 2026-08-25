@@ -5,127 +5,90 @@ import base64
 from pyrogram.file_id import FileId
 from typing import Dict, List
 from collections import defaultdict
-from pymongo.errors import DuplicateKeyError
-from umongo import Instance, Document, fields
-from motor.motor_asyncio import AsyncIOMotorClient
-from marshmallow import ValidationError
+import libsql_client
 from info import *
 from utils import get_settings, save_group_settings
 from datetime import datetime, timedelta
-import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 #---------------------------------------------------------
 
-# Global cache for DB size
-_db_stats_cache = {
-    "timestamp": None,
-    "primary_size": 0.0
-}
+# Turso Client connection initialize karna
+client = libsql_client.create_client(url=LIBSQL_URL, auth_token=LIBSQL_AUTH_TOKEN)
 
-# Primary DB
-client = AsyncIOMotorClient(DATABASE_URI)
-db = client[DATABASE_NAME]
-instance = Instance.from_db(db)
+# Tables create karna agar pehle se nahi bani hain
+client.execute("""
+    CREATE TABLE IF NOT EXISTS media (
+        file_id TEXT PRIMARY KEY,
+        file_ref TEXT,
+        file_name TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        file_type TEXT,
+        mime_type TEXT,
+        caption TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+""")
 
-#secondary db
-client2 = AsyncIOMotorClient(DATABASE_URI2)
-db2 = client2[DATABASE_NAME]
-instance2 = Instance.from_db(db2)
+client.execute("""
+    CREATE TABLE IF NOT EXISTS media2 (
+        file_id TEXT PRIMARY KEY,
+        file_ref TEXT,
+        file_name TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        file_type TEXT,
+        mime_type TEXT,
+        caption TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+""")
 
+# Helper class mongodb document jaisa object provide karne ke liye
+class MediaRecord:
+    def __init__(self, row):
+        self.file_id = row[0]
+        self.file_ref = row[1]
+        self.file_name = row[2]
+        self.file_size = row[3]
+        self.file_type = row[4]
+        self.mime_type = row[5]
+        self.caption = row[6]
 
-@instance.register
-class Media(Document):
-    file_id = fields.StrField(attribute='_id')
-    file_ref = fields.StrField(allow_none=True)
-    file_name = fields.StrField(required=True)
-    file_size = fields.IntField(required=True)
-    file_type = fields.StrField(allow_none=True)
-    mime_type = fields.StrField(allow_none=True)
-    caption = fields.StrField(allow_none=True)
-    class Meta:
-        indexes = ('$file_name', )
-        collection_name = COLLECTION_NAME
-
-@instance2.register
-class Media2(Document):
-    file_id = fields.StrField(attribute='_id')
-    file_ref = fields.StrField(allow_none=True)
-    file_name = fields.StrField(required=True)
-    file_size = fields.IntField(required=True)
-    file_type = fields.StrField(allow_none=True)
-    mime_type = fields.StrField(allow_none=True)
-    caption = fields.StrField(allow_none=True)
-    class Meta:
-        indexes = ('$file_name', )
-        collection_name = COLLECTION_NAME
-
-async def check_db_size(db): 
-    try:
-        now = datetime.utcnow()
-        cache_stale_by_time = _db_stats_cache["timestamp"] is None or \
-                             (now - _db_stats_cache["timestamp"] > timedelta(minutes=10))
-        refresh_if_size_threshold = _db_stats_cache["primary_size"] >= 10.0
-        if not cache_stale_by_time and not refresh_if_size_threshold:
-            return _db_stats_cache["primary_size"]
-        stats = await db.command("dbstats")
-        db_logical_size = stats["dataSize"]
-        db_index_size = stats["indexSize"]
-        db_logical_size_mb = db_logical_size / (1024 * 1024)
-        db_index_size_mb = db_index_size / (1024 * 1024) 
-        db_size_mb = db_logical_size_mb + db_index_size_mb
-        _db_stats_cache["primary_size"] = db_size_mb
-        _db_stats_cache["timestamp"] = now
-        return db_size_mb
-    except Exception as e:
-        print(f"Error Checking Database Size: {e}")
-        return 0
-    
 async def save_file(media):
-    """Save file in database, with detailed logging."""
+    """Save file in Turso database with duplicate checking."""
     file_id, file_ref = unpack_new_file_id(media.file_id)
     file_name = re.sub(r"[_\-\.#+$%^&*()!~`,;:\"'?/<>\[\]{}=|\\]", " ",
                        str(media.file_name))
     file_name = re.sub(r"\s+", " ", file_name).strip()
-    saveMedia = Media
+    
+    table_name = "media"
     target_db = "Primary"
+    
     if MULTIPLE_DB:
         try:
-            exists = await Media.count_documents({'file_id': file_id}, limit=1)
-            if exists:
+            res = client.execute("SELECT 1 FROM media WHERE file_id = ? LIMIT 1", (file_id,))
+            if list(res.rows):
                 logger.info(f"[SKIP] '{file_name}' already in Primary DB.")
                 return False, 0
-            primary_db_size = await check_db_size(db)
-            if primary_db_size >= 407:
-                saveMedia = Media2
-                target_db = "Secondary"
-                logger.warning("Switching to Secondary DB due to size threshold.")
+            # Turso me storage check ki zaroorat nahi kyunki 5GB free limit hai
         except Exception as e:
             logger.error("Error during MULTIPLE_DB check; defaulting to primary DB.", exc_info=e)
+
+    caption_text = (media.caption.html if media.caption and INDEX_CAPTION else None)
+
     try:
-        record = saveMedia(
-            file_id=file_id,
-            file_ref=file_ref,
-            file_name=file_name,
-            file_size=media.file_size,
-            file_type=media.file_type,
-            mime_type=media.mime_type,
-            caption=(media.caption.html if media.caption and INDEX_CAPTION else None),
-        )
-    except ValidationError as e:
-        logger.exception(f"[VALIDATION ERROR] '{file_name}' → {e}")
-        return False, 2
-    try:
-        await record.commit()
-    except DuplicateKeyError:
-        logger.info(f"[SKIP] DuplicateKey: '{file_name}' already exists in {target_db} DB.")
-        return False, 0
+        client.execute(f"""
+            INSERT OR IGNORE INTO {table_name} 
+            (file_id, file_ref, file_name, file_size, file_type, mime_type, caption) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (file_id, file_ref, file_name, media.file_size, media.file_type, media.mime_type, caption_text))
+        
+        logger.info(f"[SUCCESS] '{file_name}' saved to {target_db} DB.")
+        return True, 1
     except Exception as e:
         logger.exception(f"[ERROR] Failed commit of '{file_name}' to {target_db} DB.", exc_info=e)
         return False, 3
-    logger.info(f"[SUCCESS] '{file_name}' saved to {target_db} DB.")
-    return True, 1
 
 async def get_search_results(chat_id, query, file_type=None, max_results=10, offset=0, filter=False):
     if chat_id is not None:
@@ -136,124 +99,93 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
             await save_group_settings(int(chat_id), "max_btn", False)
             settings = await get_settings(int(chat_id))
             max_results = 10 if settings.get("max_btn") else int(MAX_B_TN)
-    if isinstance(query, list):
-        regex_list = []
-        for q in query:
-            q = q.strip()
-            if not q:
-                continue
-            if " " not in q:
-                raw = r"(\b|[\.\+\-_])" + re.escape(q) + r"(\b|[\.\+\-_])"
-            else:
-                raw = re.escape(q).replace(r"\ ", r".*[\s\.\+\-_()]")
-            regex_list.append(re.compile(raw, re.IGNORECASE))
-
-        if USE_CAPTION_FILTER:
-            filter_mongo = {
-                "$or": (
-                    [{"file_name": r} for r in regex_list] +
-                    [{"caption":   r} for r in regex_list]
-                )
-            }
-        else:
-            filter_mongo = {"$or": [{"file_name": r} for r in regex_list]}
-
-    else:  
-        query = query.strip()
-        if not query:
-            raw_pattern = "."
-        elif " " not in query:
-            raw_pattern = r"(\b|[\.\+\-_])" + query + r"(\b|[\.\+\-_])"
-        else:
-            raw_pattern = query.replace(" ", r".*[\s\.\+\-_()]")
-
-        try:
-            regex = re.compile(raw_pattern, flags=re.IGNORECASE)
-        except re.error:
-            return [], "", 0
-
-        if USE_CAPTION_FILTER:
-            filter_mongo = {"$or": [{"file_name": regex}, {"caption": regex}]}
-        else:
-            filter_mongo = {"file_name": regex}
-    if file_type:
-        filter_mongo["file_type"] = file_type
-    total_results = await Media.count_documents(filter_mongo)
-    if MULTIPLE_DB:
-        total_results += await Media2.count_documents(filter_mongo)
 
     if max_results % 2:         
         max_results += 1
 
-    cursor1 = (
-        Media.find(filter_mongo)
-        .sort("$natural", -1)
-        .skip(offset)
-        .limit(max_results)
-    )
-    files1 = await cursor1.to_list(length=max_results)
+    # SQL Like query banana search ke liye
+    if isinstance(query, list):
+        search_terms = [q.strip() for q in query if q.strip()]
+    else:
+        search_terms = [query.strip()] if query.strip() else []
 
+    if not search_terms:
+        sql_query = "SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media"
+        params = []
+    else:
+        conditions = []
+        params = []
+        for term in search_terms:
+            like_term = f"%{term}%"
+            if USE_CAPTION_FILTER:
+                conditions.append("(file_name LIKE ? OR caption LIKE ?)")
+                params.extend([like_term, like_term])
+            else:
+                conditions.append("file_name LIKE ?")
+                params.append(like_term)
+        
+        where_clause = " OR ".join(conditions)
+        sql_query = f"SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE ({where_clause})"
+
+    if file_type:
+        if "WHERE" in sql_query:
+            sql_query += " AND file_type = ?"
+        else:
+            sql_query += " WHERE file_type = ?"
+        params.append(file_type)
+
+    # Count total results
+    count_sql = sql_query.replace("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption", "SELECT COUNT(*)")
+    total_res = client.execute(count_sql, params)
+    total_results = list(total_res.rows)[0][0]
+
+    # Add pagination
+    sql_query += " ORDER BY rowid DESC LIMIT ? OFFSET ?"
+    params.extend([max_results, offset])
+
+    cursor1 = client.execute(sql_query, params)
+    files1 = [MediaRecord(row) for row in cursor1.rows]
+
+    files = files1
     if MULTIPLE_DB:
         remaining = max_results - len(files1)
-        cursor2 = (
-            Media2.find(filter_mongo)
-            .sort("$natural", -1)
-            .skip(offset)
-            .limit(remaining)
-        )
-        files2 = await cursor2.to_list(length=remaining)
-        files = files1 + files2
-    else:
-        files = files1
+        if remaining > 0:
+            cursor2 = client.execute(sql_query.replace("FROM media", "FROM media2"), params)
+            files2 = [MediaRecord(row) for row in cursor2.rows]
+            files = files1 + files2
+
     next_offset = offset + len(files)
     if next_offset >= total_results:
         next_offset = ""
     return files, next_offset, total_results
 
-
-
 async def get_bad_files(query, file_type=None, filter=False):
     """For given query return (results, next_offset)"""
     query = query.strip()
-    if not query:
-        raw_pattern = '.'
-    elif ' ' not in query:
-        raw_pattern = r'(\b|[\.\+\-_])' + query + r'(\b|[\.\+\-_])'
-    else:
-        raw_pattern = query.replace(' ', r'.*[\s\.\+\-_()]')
+    like_term = f"%{query}%" if query else "%"
     
-    try:
-        regex = re.compile(raw_pattern, flags=re.IGNORECASE)
-    except:
-        return []
-
     if USE_CAPTION_FILTER:
-        filter = {'$or': [{'file_name': regex}, {'caption': regex}]}
+        sql = "SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_name LIKE ? OR caption LIKE ?"
+        params = [like_term, like_term]
     else:
-        filter = {'file_name': regex}
+        sql = "SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_name LIKE ?"
+        params = [like_term]
 
     if file_type:
-        filter['file_type'] = file_type
+        sql += " AND file_type = ?"
+        params.append(file_type)
 
-    cursor = Media.find(filter)
-    cursor2 = Media2.find(filter)
-
-    cursor.sort('$natural', -1)
-    cursor2.sort('$natural', -1)
-
-    files = ((await cursor2.to_list(length=(await Media2.count_documents(filter))))+(await cursor.to_list(length=(await Media.count_documents(filter)))))
-
-    total_results = len(files)
-
-    return files, total_results
+    sql += " ORDER BY rowid DESC"
+    cursor = client.execute(sql, params)
+    files = [MediaRecord(row) for row in cursor.rows]
+    return files, len(files)
 
 async def get_file_details(query):
-    filter = {'file_id': query}
-    cursor = Media.find(filter)
-    filedetails = await cursor.to_list(length=1)
-    if not filedetails:
-        cursor2 = Media2.find(filter)
-        filedetails = await cursor2.to_list(length=1)
+    cursor = client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_id = ?", (query,))
+    filedetails = [MediaRecord(row) for row in cursor.rows]
+    if not filedetails and MULTIPLE_DB:
+        cursor2 = client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media2 WHERE file_id = ?", (query,))
+        filedetails = [MediaRecord(row) for row in cursor2.rows]
     return filedetails
 
 def encode_file_id(s: bytes) -> str:
@@ -288,17 +220,10 @@ def unpack_new_file_id(new_file_id):
     file_ref = encode_file_ref(decoded.file_reference)
     return file_id, file_ref
 
-
-async def dreamxbotz_fetch_media(limit: int) -> List[dict]:
+async def dreamxbotz_fetch_media(limit: int) -> List[object]:
     try:
-        if MULTIPLE_DB:
-            db_size = await check_db_size(Media)
-            if db_size > 407:
-                cursor = Media2.find().sort("$natural", -1).limit(limit)
-                files = await cursor.to_list(length=limit)
-                return files
-        cursor = Media.find().sort("$natural", -1).limit(limit)
-        files = await cursor.to_list(length=limit)
+        cursor = client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media ORDER BY rowid DESC LIMIT ?", (limit,))
+        files = [MediaRecord(row) for row in cursor.rows]
         return files
     except Exception as e:
         logger.error(f"Error in dreamxbotz_fetch_media: {e}")
@@ -356,4 +281,3 @@ async def dreamxbotz_get_series(limit: int = 30) -> Dict[str, List[int]]:
     except Exception as e:
         logger.error(f"Error in dreamxbotz_get_series: {e}")
         return []
-

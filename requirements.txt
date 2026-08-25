@@ -1,9 +1,6 @@
 pyrofork==2.3.69
 tgcrypto-pyrofork
-pymongo==4.13.2
-motor==3.7.1
-marshmallow<4.0.0
-umongo
+libsql
 requests
 bs4
 shortzy
@@ -24,7 +21,6 @@ wheel
 ujson
 wget
 aiofiles
-dnspython==2.7.0
 python-decouple
 ffmpeg-python==0.2.0
 jinja2

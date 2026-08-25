@@ -6,73 +6,83 @@ from info import *
 
 class Database:    
     def __init__(self, url, auth_token):
-        self.client = libsql_client.create_client(url=url, auth_token=auth_token)
-        self._create_tables()
+        self.url = url
+        self.auth_token = auth_token
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
+            self._create_tables()
+        return self._client
 
     def _create_tables(self):
-        # Sabhi tables ko create karna agar pehle se na bani ho
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                name TEXT,
-                ban_status TEXT
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS groups (
-                id INTEGER PRIMARY KEY,
-                title TEXT,
-                chat_status TEXT,
-                settings TEXT
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS requests (
-                id INTEGER PRIMARY KEY
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS bot_settings (
-                id INTEGER,
-                key TEXT,
-                value TEXT,
-                PRIMARY KEY (id, key)
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS misc (
-                user_id INTEGER PRIMARY KEY,
-                last_verified TEXT,
-                second_time_verified TEXT,
-                third_time_verified TEXT
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS verify_id (
-                user_id INTEGER,
-                hash TEXT,
-                verified INTEGER,
-                PRIMARY KEY (user_id, hash)
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS premium_users (
-                id INTEGER PRIMARY KEY,
-                expiry_time TEXT,
-                has_free_trial INTEGER
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS connections (
-                user_id INTEGER PRIMARY KEY,
-                group_ids TEXT
-            )
-        """)
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS movie_updates (
-                filename TEXT PRIMARY KEY
-            )
-        """)
+        try:
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    ban_status TEXT
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS groups (
+                    id INTEGER PRIMARY KEY,
+                    title TEXT,
+                    chat_status TEXT,
+                    settings TEXT
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS requests (
+                    id INTEGER PRIMARY KEY
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    id INTEGER,
+                    key TEXT,
+                    value TEXT,
+                    PRIMARY KEY (id, key)
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS misc (
+                    user_id INTEGER PRIMARY KEY,
+                    last_verified TEXT,
+                    second_time_verified TEXT,
+                    third_time_verified TEXT
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS verify_id (
+                    user_id INTEGER,
+                    hash TEXT,
+                    verified INTEGER,
+                    PRIMARY KEY (user_id, hash)
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS premium_users (
+                    id INTEGER PRIMARY KEY,
+                    expiry_time TEXT,
+                    has_free_trial INTEGER
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS connections (
+                    user_id INTEGER PRIMARY KEY,
+                    group_ids TEXT
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS movie_updates (
+                    filename TEXT PRIMARY KEY
+                )
+            """)
+        except Exception as e:
+            print(f"Table creation error: {e}")
 
     async def add_name(self, filename):
         try:
@@ -281,7 +291,7 @@ class Database:
         return CursorMock(res.rows)
 
     async def get_db_size(self):
-        return 0 # Turso me database size ki zaroorat nahi padti, 5GB free limit hai
+        return 0
 
     async def get_user(self, user_id):
         res = self.client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE id = ?", (int(user_id),))

@@ -1,51 +1,108 @@
-import motor.motor_asyncio
-from info import *
 import datetime
-import pytz  
-from pymongo.errors import DuplicateKeyError
+import pytz
+import json
+import libsql_client
+from info import *
 
 class Database:    
-    def __init__(self, uri, database_name):
-        self._client = motor.motor_asyncio.AsyncIOMotorClient(uri)
-        self.db = self._client[database_name]
-        # Collections
-        self.col = self.db.users
-        self.grp = self.db.groups
-        self.users = self.db.uersz
-        self.req = self.db.requests
-        self.botcol = self.db.bot_settings
-        self.misc = self.db.misc
-        self.verify_id = self.db.verify_id 
-        self.codes = self.db.codes
-        self.filename_col = self.db.filename
-        self.movie_updates = self.db.movie_updates
-        self.connection = self.db.connections
+    def __init__(self, url, auth_token):
+        self.client = libsql_client.create_client(url=url, auth_token=auth_token)
+        self._create_tables()
+
+    def _create_tables(self):
+        # Sabhi tables ko create karna agar pehle se na bani ho
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                ban_status TEXT
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY,
+                title TEXT,
+                chat_status TEXT,
+                settings TEXT
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS requests (
+                id INTEGER PRIMARY KEY
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                id INTEGER,
+                key TEXT,
+                value TEXT,
+                PRIMARY KEY (id, key)
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS misc (
+                user_id INTEGER PRIMARY KEY,
+                last_verified TEXT,
+                second_time_verified TEXT,
+                third_time_verified TEXT
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS verify_id (
+                user_id INTEGER,
+                hash TEXT,
+                verified INTEGER,
+                PRIMARY KEY (user_id, hash)
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS premium_users (
+                id INTEGER PRIMARY KEY,
+                expiry_time TEXT,
+                has_free_trial INTEGER
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS connections (
+                user_id INTEGER PRIMARY KEY,
+                group_ids TEXT
+            )
+        """)
+        self.client.execute("""
+            CREATE TABLE IF NOT EXISTS movie_updates (
+                filename TEXT PRIMARY KEY
+            )
+        """)
 
     async def add_name(self, filename):
-        if await self.movie_updates.find_one({'_id': filename}):
+        try:
+            res = self.client.execute("SELECT 1 FROM movie_updates WHERE filename = ?", (filename,))
+            if list(res.rows):
+                return False
+            self.client.execute("INSERT INTO movie_updates (filename) VALUES (?)", (filename,))
+            return True
+        except Exception:
             return False
-        await self.movie_updates.insert_one({'_id': filename})
-        return True
 
     async def delete_all_msg(self):
-        await self.movie_updates.delete_many({})
+        self.client.execute("DELETE FROM movie_updates")
         print("All filenames notification have been deleted.")
         return True
  
-     
     async def find_join_req(self, id):
-        return bool(await self.req.find_one({'id': id})) 
+        res = self.client.execute("SELECT 1 FROM requests WHERE id = ?", (id,))
+        return len(list(res.rows)) > 0
      
     async def add_join_req(self, id):
-        await self.req.insert_one({'id': id})
+        self.client.execute("INSERT OR IGNORE INTO requests (id) VALUES (?)", (id,))
 
     async def del_join_req(self):
-        await self.req.drop()
+        self.client.execute("DELETE FROM requests")
 
     def new_user(self, id, name):
         return dict(
-            id = id,
-            name = name,
+            id=id,
+            name=name,
             ban_status=dict(
                 is_banned=False,
                 ban_reason="",
@@ -54,8 +111,8 @@ class Database:
 
     def new_group(self, id, title):
         return dict(
-            id = id,
-            title = title,
+            id=id,
+            title=title,
             chat_status=dict(
                 is_disabled=False,
                 reason="",
@@ -63,74 +120,96 @@ class Database:
         )
     
     async def add_user(self, id, name):
-        user = self.new_user(id, name)
-        await self.col.insert_one(user)
+        if not await self.is_user_exist(id):
+            ban_status = json.dumps({"is_banned": False, "ban_reason": ""})
+            self.client.execute("INSERT OR REPLACE INTO users (id, name, ban_status) VALUES (?, ?, ?)", (id, name, ban_status))
     
     async def is_user_exist(self, id):
-        user = await self.col.find_one({'id':int(id)})
-        return bool(user)
+        res = self.client.execute("SELECT 1 FROM users WHERE id = ?", (int(id),))
+        return len(list(res.rows)) > 0
     
     async def total_users_count(self):
-        count = await self.col.count_documents({})
-        return count
+        res = self.client.execute("SELECT COUNT(*) FROM users")
+        return list(res.rows)[0][0]
     
     async def remove_ban(self, id):
-        ban_status = dict(
-            is_banned=False,
-            ban_reason=''
-        )
-        await self.col.update_one({'id': id}, {'$set': {'ban_status': ban_status}})
+        ban_status = json.dumps({"is_banned": False, "ban_reason": ""})
+        self.client.execute("UPDATE users SET ban_status = ? WHERE id = ?", (ban_status, int(id)))
     
     async def ban_user(self, user_id, ban_reason="No Reason"):
-        ban_status = dict(
-            is_banned=True,
-            ban_reason=ban_reason
-        )
-        await self.col.update_one({'id': user_id}, {'$set': {'ban_status': ban_status}})
+        ban_status = json.dumps({"is_banned": True, "ban_reason": ban_reason})
+        self.client.execute("UPDATE users SET ban_status = ? WHERE id = ?", (ban_status, int(user_id)))
 
     async def get_ban_status(self, id):
-        default = dict(
-            is_banned=False,
-            ban_reason=''
-        )
-        user = await self.col.find_one({'id':int(id)})
-        if not user:
+        default = dict(is_banned=False, ban_reason='')
+        res = self.client.execute("SELECT ban_status FROM users WHERE id = ?", (int(id),))
+        rows = list(res.rows)
+        if not rows or not rows[0][0]:
             return default
-        return user.get('ban_status', default)
+        try:
+            return json.loads(rows[0][0])
+        except Exception:
+            return default
 
     async def get_all_users(self):
-        return self.col.find({})
+        res = self.client.execute("SELECT id, name, ban_status FROM users")
+        class CursorMock:
+            def __init__(self, rows):
+                self.rows = rows
+            async def __aiter__(self):
+                for row in self.rows:
+                    yield {"id": row[0], "name": row[1], "ban_status": json.loads(row[2]) if row[2] else {}}
+        return CursorMock(res.rows)
     
     async def delete_user(self, user_id):
-        await self.col.delete_many({'id': int(user_id)})
+        self.client.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
         
     async def delete_chat(self, id):
-        await self.grp.delete_many({'id': int(id)})    
+        self.client.execute("DELETE FROM groups WHERE id = ?", (int(id),))    
 
     async def get_banned(self):
-        users = self.col.find({'ban_status.is_banned': True})
-        chats = self.grp.find({'chat_status.is_disabled': True})
-        b_chats = [chat['id'] async for chat in chats]
-        b_users = [user['id'] async for user in users]
+        res_u = self.client.execute("SELECT id, ban_status FROM users")
+        b_users = []
+        for r in res_u.rows:
+            try:
+                bs = json.loads(r[1]) if r[1] else {}
+                if bs.get('is_banned'):
+                    b_users.append(r[0])
+            except Exception:
+                pass
+
+        res_c = self.client.execute("SELECT id, chat_status FROM groups")
+        b_chats = []
+        for r in res_c.rows:
+            try:
+                cs = json.loads(r[1]) if r[1] else {}
+                if cs.get('is_disabled'):
+                    b_chats.append(r[0])
+            except Exception:
+                pass
         return b_users, b_chats
     
     async def add_chat(self, chat, title):
-        chat = self.new_group(chat, title)
-        await self.grp.insert_one(chat)
+        chat_status = json.dumps({"is_disabled": False, "reason": ""})
+        self.client.execute("INSERT OR REPLACE INTO groups (id, title, chat_status) VALUES (?, ?, ?)", (int(chat), title, chat_status))
     
     async def get_chat(self, chat):
-        chat = await self.grp.find_one({'id':int(chat)})
-        return False if not chat else chat.get('chat_status')
+        res = self.client.execute("SELECT chat_status FROM groups WHERE id = ?", (int(chat),))
+        rows = list(res.rows)
+        if not rows or not rows[0][0]:
+            return False
+        try:
+            return json.loads(rows[0][0])
+        except Exception:
+            return False
     
     async def re_enable_chat(self, id):
-        chat_status=dict(
-            is_disabled=False,
-            reason="",
-            )
-        await self.grp.update_one({'id': int(id)}, {'$set': {'chat_status': chat_status}})
+        chat_status = json.dumps({"is_disabled": False, "reason": ""})
+        self.client.execute("UPDATE groups SET chat_status = ? WHERE id = ?", (chat_status, int(id)))
         
     async def update_settings(self, id, settings):
-        await self.grp.update_one({'id': int(id)}, {'$set': {'settings': settings}})
+        settings_str = json.dumps(settings)
+        self.client.execute("UPDATE groups SET settings = ? WHERE id = ?", (settings_str, int(id)))
                                   
     async def get_settings(self, id):
         default = {
@@ -160,73 +239,110 @@ class Database:
             'caption': CUSTOM_FILE_CAPTION,
             'fsub': AUTH_CHANNELS
         }
-        chat = await self.grp.find_one({'id':int(id)})
-        if chat and 'settings' in chat:
-            return chat['settings']
+        res = self.client.execute("SELECT settings FROM groups WHERE id = ?", (int(id),))
+        rows = list(res.rows)
+        if rows and rows[0][0]:
+            try:
+                return json.loads(rows[0][0])
+            except Exception:
+                return default.copy()
         else:
             return default.copy()
 
     async def dreamx_reset_settings(self):
         try:
-            result = await self.grp.update_many(
-                {'settings': {'$exists': True}},
-                {'$unset': {'settings': ''}}
-            )
-            modified_count = result.modified_count
-            return modified_count
+            res = self.client.execute("SELECT id, settings FROM groups")
+            count = 0
+            for r in res.rows:
+                if r[1]:
+                    self.client.execute("UPDATE groups SET settings = NULL WHERE id = ?", (r[0],))
+                    count += 1
+            return count
         except Exception as e:
             print(f"Error deleting settings for all groups: {str(e)}")
             raise
 
     async def disable_chat(self, chat, reason="No Reason"):
-        chat_status=dict(
-            is_disabled=True,
-            reason=reason,
-            )
-        await self.grp.update_one({'id': int(chat)}, {'$set': {'chat_status': chat_status}})
+        chat_status = json.dumps({"is_disabled": True, "reason": reason})
+        self.client.execute("UPDATE groups SET chat_status = ? WHERE id = ?", (chat_status, int(chat)))
 
     async def total_chat_count(self):
-        count = await self.grp.count_documents({})
-        return count
+        res = self.client.execute("SELECT COUNT(*) FROM groups")
+        return list(res.rows)[0][0]
     
     async def get_all_chats(self):
-        return self.grp.find({})
+        res = self.client.execute("SELECT id, title, chat_status, settings FROM groups")
+        class CursorMock:
+            def __init__(self, rows):
+                self.rows = rows
+            async def __aiter__(self):
+                for row in self.rows:
+                    yield {"id": row[0], "title": row[1], "chat_status": json.loads(row[2]) if row[2] else {}, "settings": json.loads(row[3]) if row[3] else {}}
+        return CursorMock(res.rows)
 
     async def get_db_size(self):
-        return (await self.db.command("dbstats"))['dataSize']
+        return 0 # Turso me database size ki zaroorat nahi padti, 5GB free limit hai
 
     async def get_user(self, user_id):
-        user_data = await self.users.find_one({"id": user_id})
-        return user_data
+        res = self.client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE id = ?", (int(user_id),))
+        rows = list(res.rows)
+        if not rows:
+            return None
+        return {
+            "id": rows[0][0],
+            "expiry_time": datetime.datetime.fromisoformat(rows[0][1]) if rows[0][1] else None,
+            "has_free_trial": bool(rows[0][2])
+        }
+
     async def update_user(self, user_data):
-        await self.users.update_one({"id": user_data["id"]}, {"$set": user_data}, upsert=True)
+        uid = int(user_data["id"])
+        exp = user_data.get("expiry_time")
+        exp_str = exp.isoformat() if isinstance(exp, datetime.datetime) else None
+        trial = 1 if user_data.get("has_free_trial") else 0
+        self.client.execute("INSERT OR REPLACE INTO premium_users (id, expiry_time, has_free_trial) VALUES (?, ?, ?)", (uid, exp_str, trial))
   
     async def get_notcopy_user(self, user_id):
         user_id = int(user_id)
-        user = await self.misc.find_one({"user_id": user_id})
+        res = self.client.execute("SELECT last_verified, second_time_verified, third_time_verified FROM misc WHERE user_id = ?", (user_id,))
+        rows = list(res.rows)
         ist_timezone = pytz.timezone('Asia/Kolkata')
-        if not user:
-            res = {
+        if not rows:
+            lv = datetime.datetime(2020, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
+            stv = datetime.datetime(2019, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
+            ttv = datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
+            self.client.execute("INSERT OR REPLACE INTO misc (user_id, last_verified, second_time_verified, third_time_verified) VALUES (?, ?, ?, ?)", (user_id, lv, stv, ttv))
+            return {
                 "user_id": user_id,
                 "last_verified": datetime.datetime(2020, 5, 17, 0, 0, 0, tzinfo=ist_timezone),
                 "second_time_verified": datetime.datetime(2019, 5, 17, 0, 0, 0, tzinfo=ist_timezone),
+                "third_time_verified": datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=ist_timezone)
             }
-            user = await self.misc.insert_one(res)
-        return user
+        else:
+            r = rows[0]
+            return {
+                "user_id": user_id,
+                "last_verified": datetime.datetime.fromisoformat(r[0]) if r[0] else datetime.datetime(2020, 5, 17, 0, 0, 0, tzinfo=ist_timezone),
+                "second_time_verified": datetime.datetime.fromisoformat(r[1]) if r[1] else datetime.datetime(2019, 5, 17, 0, 0, 0, tzinfo=ist_timezone),
+                "third_time_verified": datetime.datetime.fromisoformat(r[2]) if r[2] else datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=ist_timezone)
+            }
 
-    async def update_notcopy_user(self, user_id, value:dict):
+    async def update_notcopy_user(self, user_id, value: dict):
         user_id = int(user_id)
-        myquery = {"user_id": user_id}
-        newvalues = {"$set": value}
-        return await self.misc.update_one(myquery, newvalues)
+        current = await self.get_notcopy_user(user_id)
+        lv = value.get("last_verified", current["last_verified"])
+        stv = value.get("second_time_verified", current["second_time_verified"])
+        ttv = value.get("third_time_verified", current.get("third_time_verified", datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=pytz.timezone('Asia/Kolkata'))))
+        
+        lv_str = lv.isoformat() if isinstance(lv, datetime.datetime) else lv
+        stv_str = stv.isoformat() if isinstance(stv, datetime.datetime) else stv
+        ttv_str = ttv.isoformat() if isinstance(ttv, datetime.datetime) else ttv
+        
+        self.client.execute("INSERT OR REPLACE INTO misc (user_id, last_verified, second_time_verified, third_time_verified) VALUES (?, ?, ?, ?)", (user_id, lv_str, stv_str, ttv_str))
+        return True
 
     async def is_user_verified(self, user_id):
         user = await self.get_notcopy_user(user_id)
-        try:
-            pastDate = user["last_verified"]
-        except Exception:
-            user = await self.get_notcopy_user(user_id)
-            pastDate = user["last_verified"]
+        pastDate = user["last_verified"]
         ist_timezone = pytz.timezone('Asia/Kolkata')
         pastDate = pastDate.astimezone(ist_timezone)
         current_time = datetime.datetime.now(tz=ist_timezone)
@@ -237,11 +353,7 @@ class Database:
 
     async def user_verified(self, user_id):
         user = await self.get_notcopy_user(user_id)
-        try:
-            pastDate = user["second_time_verified"]
-        except Exception:
-            user = await self.get_notcopy_user(user_id)
-            pastDate = user["second_time_verified"]
+        pastDate = user["second_time_verified"]
         ist_timezone = pytz.timezone('Asia/Kolkata')
         pastDate = pastDate.astimezone(ist_timezone)
         current_time = datetime.datetime.now(tz=ist_timezone)
@@ -254,14 +366,10 @@ class Database:
         user = await self.get_notcopy_user(user_id)
         if not user.get("second_time_verified"):
             ist_timezone = pytz.timezone('Asia/Kolkata')
-            await self.update_notcopy_user(user_id, {"second_time_verified":datetime.datetime(2019, 5, 17, 0, 0, 0, tzinfo=ist_timezone)})
+            await self.update_notcopy_user(user_id, {"second_time_verified": datetime.datetime(2019, 5, 17, 0, 0, 0, tzinfo=ist_timezone)})
             user = await self.get_notcopy_user(user_id)
         if await self.is_user_verified(user_id):
-            try:
-                pastDate = user["last_verified"]
-            except Exception:
-                user = await self.get_notcopy_user(user_id)
-                pastDate = user["last_verified"]
+            pastDate = user["last_verified"]
             ist_timezone = pytz.timezone('Asia/Kolkata')
             pastDate = pastDate.astimezone(ist_timezone)
             current_time = datetime.datetime.now(tz=ist_timezone)
@@ -276,14 +384,10 @@ class Database:
         user = await self.get_notcopy_user(user_id)
         if not user.get("third_time_verified"):
             ist_timezone = pytz.timezone('Asia/Kolkata')
-            await self.update_notcopy_user(user_id, {"third_time_verified":datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=ist_timezone)})
+            await self.update_notcopy_user(user_id, {"third_time_verified": datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=ist_timezone)})
             user = await self.get_notcopy_user(user_id)
         if await self.user_verified(user_id):
-            try:
-                pastDate = user["second_time_verified"]
-            except Exception:
-                user = await self.get_notcopy_user(user_id)
-                pastDate = user["second_time_verified"]
+            pastDate = user["second_time_verified"]
             ist_timezone = pytz.timezone('Asia/Kolkata')
             pastDate = pastDate.astimezone(ist_timezone)
             current_time = datetime.datetime.now(tz=ist_timezone)
@@ -295,16 +399,20 @@ class Database:
         return False
    
     async def create_verify_id(self, user_id: int, hash):
-        res = {"user_id": user_id, "hash":hash, "verified":False}
-        return await self.verify_id.insert_one(res)
+        self.client.execute("INSERT OR REPLACE INTO verify_id (user_id, hash, verified) VALUES (?, ?, 0)", (user_id, hash))
+        return True
 
     async def get_verify_id_info(self, user_id: int, hash):
-        return await self.verify_id.find_one({"user_id": user_id, "hash": hash})
+        res = self.client.execute("SELECT user_id, hash, verified FROM verify_id WHERE user_id = ? AND hash = ?", (user_id, hash))
+        rows = list(res.rows)
+        if not rows:
+            return None
+        return {"user_id": rows[0][0], "hash": rows[0][1], "verified": bool(rows[0][2])}
 
     async def update_verify_id_info(self, user_id, hash, value: dict):
-        myquery = {"user_id": user_id, "hash": hash}
-        newvalues = { "$set": value }
-        return await self.verify_id.update_one(myquery, newvalues)
+        v = 1 if value.get("verified") else 0
+        self.client.execute("UPDATE verify_id SET verified = ? WHERE user_id = ? AND hash = ?", (v, user_id, hash))
+        return True
         
     async def has_premium_access(self, user_id):
         user_data = await self.get_user(user_id)
@@ -315,30 +423,35 @@ class Database:
             elif isinstance(expiry_time, datetime.datetime) and datetime.datetime.now() <= expiry_time:
                 return True
             else:
-                await self.users.update_one({"id": user_id}, {"$set": {"expiry_time": None}})
+                self.client.execute("UPDATE premium_users SET expiry_time = NULL WHERE id = ?", (int(user_id),))
         return False
-        
-    
 
     async def update_one(self, filter_query, update_data):
         try:
-            result = await self.users.update_one(filter_query, update_data)
-            return result.matched_count == 1
+            uid = filter_query.get("id")
+            if "$set" in update_data:
+                for k, v in update_data["$set"].items():
+                    if k == "expiry_time":
+                        v_str = v.isoformat() if isinstance(v, datetime.datetime) else None
+                        self.client.execute("UPDATE premium_users SET expiry_time = ? WHERE id = ?", (v_str, int(uid)))
+            return True
         except Exception as e:
             print(f"Error updating document: {e}")
             return False
 
     async def get_expired(self, current_time):
         expired_users = []
-        if data := self.users.find({"expiry_time": {"$lt": current_time}}):
-            async for user in data:
-                expired_users.append(user)
+        res = self.client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE expiry_time IS NOT NULL")
+        for r in res.rows:
+            if r[1]:
+                exp = datetime.datetime.fromisoformat(r[1])
+                if exp < current_time:
+                    expired_users.append({"id": r[0], "expiry_time": exp, "has_free_trial": bool(r[2])})
         return expired_users
 
     async def remove_premium_access(self, user_id):
-        return await self.update_one(
-            {"id": user_id}, {"$set": {"expiry_time": None}}
-        )
+        self.client.execute("UPDATE premium_users SET expiry_time = NULL WHERE id = ?", (int(user_id),))
+        return True
 
     async def check_trial_status(self, user_id):
         user_data = await self.get_user(user_id)
@@ -347,49 +460,71 @@ class Database:
         return False
 
     async def give_free_trial(self, user_id):
-        user_id = user_id
-        seconds = 5*60         
+        seconds = 5 * 60         
         expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
-        user_data = {"id": user_id, "expiry_time": expiry_time, "has_free_trial": True}
-        await self.users.update_one({"id": user_id}, {"$set": user_data}, upsert=True)
+        exp_str = expiry_time.isoformat()
+        self.client.execute("INSERT OR REPLACE INTO premium_users (id, expiry_time, has_free_trial) VALUES (?, ?, 1)", (int(user_id), exp_str))
         
     async def all_premium_users(self):
-        count = await self.users.count_documents({
-        "expiry_time": {"$gt": datetime.datetime.now()}
-        })
+        res = self.client.execute("SELECT expiry_time FROM premium_users WHERE expiry_time IS NOT NULL")
+        now = datetime.datetime.now()
+        count = 0
+        for r in res.rows:
+            if r[0]:
+                exp = datetime.datetime.fromisoformat(r[0])
+                if exp > now:
+                    count += 1
         return count
     
     async def get_bot_setting(self, bot_id, setting_key, default_value):
-        bot = await self.botcol.find_one({'id': int(bot_id)}, {setting_key: 1, '_id': 0})
-        return bot[setting_key] if bot and setting_key in bot else default_value
+        res = self.client.execute("SELECT value FROM bot_settings WHERE id = ? AND key = ?", (int(bot_id), setting_key))
+        rows = list(res.rows)
+        if not rows:
+            return default_value
+        try:
+            return json.loads(rows[0][0])
+        except Exception:
+            return rows[0][0]
         
     async def update_bot_setting(self, bot_id, setting_key, value):
-        await self.botcol.update_one(
-            {'id': int(bot_id)}, 
-            {'$set': {setting_key: value}}, 
-            upsert=True
-        )
+        val_str = json.dumps(value)
+        self.client.execute("INSERT OR REPLACE INTO bot_settings (id, key, value) VALUES (?, ?, ?)", (int(bot_id), setting_key, val_str))
 
     async def connect_group(self, group_id, user_id):
-        user= await self.connection.find_one({'_id': user_id})
-        if user:
-            if group_id not in user["group_ids"]:
-                await self.connection.update_one({'_id': user_id}, {"$push": {"group_ids": group_id}})
+        res = self.client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
+        rows = list(res.rows)
+        if rows and rows[0][0]:
+            try:
+                g_list = json.loads(rows[0][0])
+            except Exception:
+                g_list = []
+            if group_id not in g_list:
+                g_list.append(group_id)
+                self.client.execute("UPDATE connections SET group_ids = ? WHERE user_id = ?", (json.dumps(g_list), int(user_id)))
         else:
-            await self.connection.insert_one({'_id': user_id, 'group_ids': [group_id]})
+            self.client.execute("INSERT OR REPLACE INTO connections (user_id, group_ids) VALUES (?, ?)", (int(user_id), json.dumps([group_id])))
 
     async def get_connected_grps(self, user_id):
-        user = await self.connection.find_one({'_id': user_id})
-        if user:
-            return user["group_ids"]
-        else:
-            return []
+        res = self.client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
+        rows = list(res.rows)
+        if rows and rows[0][0]:
+            try:
+                return json.loads(rows[0][0])
+            except Exception:
+                return []
+        return []
         
     async def remove_group_connection(self, group_id, user_id):
-        await self.connection.update_one(
-            {'_id': user_id},
-            {'$pull': {'group_ids': group_id}}
-        )
+        res = self.client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
+        rows = list(res.rows)
+        if rows and rows[0][0]:
+            try:
+                g_list = json.loads(rows[0][0])
+                if group_id in g_list:
+                    g_list.remove(group_id)
+                    self.client.execute("UPDATE connections SET group_ids = ? WHERE user_id = ?", (json.dumps(g_list), int(user_id)))
+            except Exception:
+                pass
 
     async def pm_search_status(self, bot_id):
         return await self.get_bot_setting(bot_id, 'PM_SEARCH', PM_SEARCH)
@@ -403,7 +538,5 @@ class Database:
     async def update_movie_update_status(self, bot_id, enable):
         await self.update_bot_setting(bot_id, 'MOVIE_UPDATE_NOTIFICATION', enable)
      
-db = Database(DATABASE_URI, DATABASE_NAME)    
-db2 = Database(DATABASE_URI2, DATABASE_NAME)
-
-
+db = Database(LIBSQL_URL, LIBSQL_AUTH_TOKEN)    
+db2 = Database(LIBSQL_URL, LIBSQL_AUTH_TOKEN)

@@ -11,16 +11,16 @@ class Database:
         self.auth_token = LIBSQL_AUTH_TOKEN
         self._client = None
 
-    @property
-    def client(self):
+    async def get_client(self):
         if self._client is None:
             self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
-            self._create_tables()
+            await self._create_tables()
         return self._client
 
-    def _create_tables(self):
+    async def _create_tables(self):
         try:
-            self._client.execute("""
+            client = self._client
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS user_messages (
                     user_id INTEGER,
                     text TEXT,
@@ -33,8 +33,9 @@ class Database:
 
     async def update_top_messages(self, user_id, message_text):
         try:
-            # SQLite / Turso ka ON CONFLICT upsert use kiya gaya hai
-            self.client.execute("""
+            client = await self.get_client()
+            # SQLite / Turso ka ON CONFLICT upsert use kiya gaya hai (await ke sath)
+            await client.execute("""
                 INSERT INTO user_messages (user_id, text, count) 
                 VALUES (?, ?, 1)
                 ON CONFLICT(user_id, text) DO UPDATE SET count = count + 1
@@ -44,20 +45,23 @@ class Database:
 
     async def get_top_messages(self, limit=30):
         try:
-            res = self.client.execute("""
+            client = await self.get_client()
+            res = await client.execute("""
                 SELECT text FROM user_messages 
                 GROUP BY text 
                 ORDER BY SUM(count) DESC 
                 LIMIT ?
             """, (int(limit),))
-            return [row[0] for row in res.rows]
+            rows = getattr(res, 'rows', None) or []
+            return [row[0] for row in rows]
         except Exception as e:
             logger.error(f"Error getting top messages: {e}")
             return []
     
     async def delete_all_messages(self):
         try:
-            self.client.execute("DELETE FROM user_messages")
+            client = await self.get_client()
+            await client.execute("DELETE FROM user_messages")
             print("All filenames notification / messages have been deleted.")
             return True
         except Exception as e:

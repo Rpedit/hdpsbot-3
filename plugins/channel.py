@@ -6,16 +6,107 @@ from collections import defaultdict
 from plugins.Dreamxfutures.Imdbposter import get_movie_detailsx, fetch_image, get_movie_details
 from database.users_chats_db import db
 from pyrogram import Client, filters, enums
-from info import CHANNELS, MOVIE_UPDATE_CHANNEL, LINK_PREVIEW, ABOVE_PREVIEW, BAD_WORDS, LANDSCAPE_POSTER, TMDB_POSTER
+from info import CHANNELS, MOVIE_UPDATE_CHANNEL, LINK_PREVIEW, ABOVE_PREVIEW, BAD_WORDS, LANDSCAPE_POSTER, TMDB_POSTER, LIBSQL_URL, LIBSQL_AUTH_TOKEN
 from Script import script
 from database.ia_filterdb import save_file
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils import temp
-from pymongo.errors import PyMongoError, DuplicateKeyError
+import libsql_client
+import json
 from pyrogram.errors import MessageIdInvalid, MessageNotModified, FloodWait
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Turso-based wrapper for movie updates cache
+class MovieUpdatesDB:
+    def __init__(self, url, auth_token):
+        self.url = url
+        self.auth_token = auth_token
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
+            self._create_tables()
+        return self._client
+
+    def _create_tables(self):
+        try:
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS movie_updates_cache (
+                    base_name TEXT PRIMARY KEY,
+                    data TEXT
+                )
+            """)
+        except Exception as e:
+            logger.error(f"Table creation error in movie_updates_cache: {e}")
+
+    async def find_one(self, query):
+        base_name = query.get("_id")
+        if not base_name:
+            return None
+        try:
+            res = self.client.execute("SELECT data FROM movie_updates_cache WHERE base_name = ?", (base_name,))
+            rows = list(res.rows)
+            if rows and rows[0][0]:
+                return json.loads(rows[0][0])
+        except Exception as e:
+            logger.error(f"Error find_one movie update: {e}")
+        return None
+
+    async def insert_one(self, doc):
+        base_name = doc.get("_id")
+        if not base_name:
+            return
+        doc_serialized = self._serialize(doc)
+        try:
+            self.client.execute(
+                "INSERT INTO movie_updates_cache (base_name, data) VALUES (?, ?)",
+                (base_name, json.dumps(doc_serialized))
+            )
+        except Exception as e:
+            if "UNIQUE constraint failed" in str(e):
+                raise Exception("DuplicateKeyError")
+            raise e
+
+    async def update_one(self, query, update_data):
+        base_name = query.get("_id")
+        if not base_name:
+            return
+        doc = await self.find_one({"_id": base_name})
+        if not doc:
+            return
+
+        if "$set" in update_data:
+            for k, v in update_data["$set"].items():
+                doc[k] = v
+        if "$push" in update_data:
+            for k, v in update_data["$push"].items():
+                if k not in doc or not isinstance(doc[k], list):
+                    doc[k] = []
+                doc[k].append(v)
+
+        doc_serialized = self._serialize(doc)
+        try:
+            self.client.execute(
+                "UPDATE movie_updates_cache SET data = ? WHERE base_name = ?",
+                (json.dumps(doc_serialized), base_name)
+            )
+        except Exception as e:
+            logger.error(f"Error update_one movie update: {e}")
+
+    def _serialize(self, obj):
+        if isinstance(obj, dict):
+            return {k: self._serialize(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize(item) for item in obj]
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        return obj
+
+movie_updates_db = MovieUpdatesDB(LIBSQL_URL, LIBSQL_AUTH_TOKEN)
 
 # Precomputed sets for faster lookups
 IGNORE_WORDS = {
@@ -132,6 +223,7 @@ def schedule_update(bot, base_name, delay=5):
         delay,
         lambda: asyncio.create_task(update_movie_message(bot, base_name))
     )
+
 def extract_media_info(filename: str, caption: str):
     filename = normalize(clean_mentions_links(filename).title())
     caption_clean = clean_mentions_links(caption).lower() if caption else ""
@@ -185,32 +277,22 @@ def extract_media_info(filename: str, caption: str):
         if year:
             base_name += f" {year}"
 
-    # -------------------------
-    # NEW: strip season/episode tokens from final base_name
-    # -------------------------
     def _strip_season_episode_tokens(name: str) -> str:
-        """
-        Remove common season/episode markers from a title while preserving a trailing year.
-        Examples removed: S01, s01e02, 1x02, season 1, ep 02, episode 2, part 1
-        """
         if not name:
             return name
-
-        # Preserve trailing year (e.g. "Title (2020)" or "Title 2020")
         year_match = re.search(r'\(?\b(19|20)\d{2}\b\)?\s*$', name)
         year_part = ""
         if year_match:
             year_part = year_match.group(0)
             name = name[:year_match.start()].strip()
 
-        # Common patterns to remove
         patterns = [
-            r'\bS\d{1,2}E\d{1,2}\b',     # S01E02
-            r'\bS\d{1,2}\b',             # S01
-            r'\bE\d{1,2}\b',             # E02
-            r'\b\d{1,2}x\d{1,2}\b',      # 1x02
-            r'\bSeason\s*\d{1,2}\b',     # Season 1
-            r'\bEp(?:isode)?\.?\s*\d{1,3}\b',  # Ep02, Episode 2
+            r'\bS\d{1,2}E\d{1,2}\b',
+            r'\bS\d{1,2}\b',
+            r'\bE\d{1,2}\b',
+            r'\b\d{1,2}x\d{1,2}\b',
+            r'\bSeason\s*\d{1,2}\b',
+            r'\bEp(?:isode)?\.?\s*\d{1,3}\b',
             r'\bEpisode\s*\d{1,3}\b',
             r'\bPart\s*\d{1,2}\b'
         ]
@@ -218,11 +300,9 @@ def extract_media_info(filename: str, caption: str):
         for p in patterns:
             name = re.sub(p, ' ', name, flags=re.IGNORECASE)
 
-        # Remove leftover separators and extra whitespace
-        name = re.sub(r'[_\.\-]+', ' ', name)     # underscores/dots/hyphens
+        name = re.sub(r'[_\.\-]+', ' ', name)
         name = re.sub(r'\s+', ' ', name).strip()
 
-        # Reattach year in canonical form if we removed it earlier
         if year_part:
             y = re.search(r'(19|20)\d{2}', year_part)
             if y:
@@ -231,7 +311,6 @@ def extract_media_info(filename: str, caption: str):
         return name.strip()
 
     base_name = _strip_season_episode_tokens(base_name)
-    # If stripping accidentally removed everything, fall back to a safer value
     if not base_name:
         base_name = normalize(remove_ignored_words(normalize(processed_raw))) or filename
 
@@ -279,14 +358,11 @@ async def process_and_send_update(bot, filename, caption):
         lock = locks[base_name]
         async with lock:
             await _process_with_lock(bot, filename, caption, media_info, base_name, processed)
-    except PyMongoError as e:
-        logger.error(f"Database error in process_and_send_update: {e}")
     except Exception as e:
         logger.exception(f"Processing failed in process_and_send_update: {e}")
 
 async def _process_with_lock(bot, filename, caption, media_info, base_name, processed):
-    if not hasattr(db, 'movie_updates'):
-        db.movie_updates = db.db.movie_updates
+    db.movie_updates = movie_updates_db
 
     movie_doc = await db.movie_updates.find_one({"_id": base_name})
     error_tmdb=False
@@ -296,7 +372,7 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
         "quality": media_info["quality"],
         "language": media_info["language"],
         "ott_platform": media_info["ott_platform"],
-        "timestamp": datetime.now(),
+        "timestamp": datetime.now().isoformat(),
         "tag": media_info["tag"],
         "season": media_info["season"],
         "episode": media_info["episode"]
@@ -324,7 +400,7 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
             "poster_url": details.get("backdrop_url") if LANDSCAPE_POSTER and TMDB_POSTER and details.get("backdrop_url") and not error_tmdb else details.get("poster_url"),
             "genres": genres,
             "rating": details.get("rating", "N/A"),
-            "imdb_url": details.get("url", "")if not TMDB_POSTER or error_tmdb else details.get("tmdb_url"),
+            "imdb_url": details.get("url", "") if not TMDB_POSTER or error_tmdb else details.get("tmdb_url"),
             "year": media_info["year"] or details.get("year"),
             "tag": media_info["tag"],
             "ott_platform": media_info["ott_platform"],
@@ -337,17 +413,20 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
             await db.movie_updates.insert_one(movie_doc)
             await send_movie_update(bot, base_name)
             movie_doc = await db.movie_updates.find_one({"_id": base_name})
-        except DuplicateKeyError:
-            movie_doc = await db.movie_updates.find_one({"_id": base_name})
-            if movie_doc:
-                if any(f["filename"] == filename for f in movie_doc["files"]):
-                    return
-                await db.movie_updates.update_one(
-                    {"_id": base_name},
-                    {"$push": {"files": file_data}}
-                )
-                movie_doc["files"].append(file_data)
-                schedule_update(bot, base_name)
+        except Exception as e:
+            if "DuplicateKeyError" in str(e):
+                movie_doc = await db.movie_updates.find_one({"_id": base_name})
+                if movie_doc:
+                    if any(f["filename"] == filename for f in movie_doc["files"]):
+                        return
+                    await db.movie_updates.update_one(
+                        {"_id": base_name},
+                        {"$push": {"files": file_data}}
+                    )
+                    movie_doc["files"].append(file_data)
+                    schedule_update(bot, base_name)
+            else:
+                raise e
     else:
         if any(f["filename"] == filename for f in movie_doc["files"]):
             return
@@ -360,7 +439,6 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
 
 async def send_movie_update(bot, base_name):
     max_retries = 3
-    base_delay = 5
     for attempt in range(max_retries):
         try:
             movie_doc = await db.movie_updates.find_one({"_id": base_name})

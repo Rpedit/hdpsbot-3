@@ -10,23 +10,23 @@ class Database:
         self.auth_token = auth_token
         self._client = None
 
-    @property
-    def client(self):
+    async def get_client(self):
         if self._client is None:
             self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
-            self._create_tables()
+            await self._create_tables()
         return self._client
 
-    def _create_tables(self):
+    async def _create_tables(self):
         try:
-            self._client.execute("""
+            client = self._client
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY,
                     name TEXT,
                     ban_status TEXT
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS groups (
                     id INTEGER PRIMARY KEY,
                     title TEXT,
@@ -34,12 +34,12 @@ class Database:
                     settings TEXT
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS requests (
                     id INTEGER PRIMARY KEY
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS bot_settings (
                     id INTEGER,
                     key TEXT,
@@ -47,7 +47,7 @@ class Database:
                     PRIMARY KEY (id, key)
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS misc (
                     user_id INTEGER PRIMARY KEY,
                     last_verified TEXT,
@@ -55,7 +55,7 @@ class Database:
                     third_time_verified TEXT
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS verify_id (
                     user_id INTEGER,
                     hash TEXT,
@@ -63,20 +63,20 @@ class Database:
                     PRIMARY KEY (user_id, hash)
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS premium_users (
                     id INTEGER PRIMARY KEY,
                     expiry_time TEXT,
                     has_free_trial INTEGER
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS connections (
                     user_id INTEGER PRIMARY KEY,
                     group_ids TEXT
                 )
             """)
-            self._client.execute("""
+            await client.execute("""
                 CREATE TABLE IF NOT EXISTS movie_updates (
                     filename TEXT PRIMARY KEY
                 )
@@ -86,28 +86,33 @@ class Database:
 
     async def add_name(self, filename):
         try:
-            res = self.client.execute("SELECT 1 FROM movie_updates WHERE filename = ?", (filename,))
+            client = await self.get_client()
+            res = await client.execute("SELECT 1 FROM movie_updates WHERE filename = ?", (filename,))
             if list(res.rows):
                 return False
-            self.client.execute("INSERT INTO movie_updates (filename) VALUES (?)", (filename,))
+            await client.execute("INSERT INTO movie_updates (filename) VALUES (?)", (filename,))
             return True
         except Exception:
             return False
 
     async def delete_all_msg(self):
-        self.client.execute("DELETE FROM movie_updates")
+        client = await self.get_client()
+        await client.execute("DELETE FROM movie_updates")
         print("All filenames notification have been deleted.")
         return True
  
     async def find_join_req(self, id):
-        res = self.client.execute("SELECT 1 FROM requests WHERE id = ?", (id,))
+        client = await self.get_client()
+        res = await client.execute("SELECT 1 FROM requests WHERE id = ?", (id,))
         return len(list(res.rows)) > 0
      
     async def add_join_req(self, id):
-        self.client.execute("INSERT OR IGNORE INTO requests (id) VALUES (?)", (id,))
+        client = await self.get_client()
+        await client.execute("INSERT OR IGNORE INTO requests (id) VALUES (?)", (id,))
 
     async def del_join_req(self):
-        self.client.execute("DELETE FROM requests")
+        client = await self.get_client()
+        await client.execute("DELETE FROM requests")
 
     def new_user(self, id, name):
         return dict(
@@ -131,28 +136,34 @@ class Database:
     
     async def add_user(self, id, name):
         if not await self.is_user_exist(id):
+            client = await self.get_client()
             ban_status = json.dumps({"is_banned": False, "ban_reason": ""})
-            self.client.execute("INSERT OR REPLACE INTO users (id, name, ban_status) VALUES (?, ?, ?)", (id, name, ban_status))
+            await client.execute("INSERT OR REPLACE INTO users (id, name, ban_status) VALUES (?, ?, ?)", (id, name, ban_status))
     
     async def is_user_exist(self, id):
-        res = self.client.execute("SELECT 1 FROM users WHERE id = ?", (int(id),))
+        client = await self.get_client()
+        res = await client.execute("SELECT 1 FROM users WHERE id = ?", (int(id),))
         return len(list(res.rows)) > 0
     
     async def total_users_count(self):
-        res = self.client.execute("SELECT COUNT(*) FROM users")
+        client = await self.get_client()
+        res = await client.execute("SELECT COUNT(*) FROM users")
         return list(res.rows)[0][0]
     
     async def remove_ban(self, id):
+        client = await self.get_client()
         ban_status = json.dumps({"is_banned": False, "ban_reason": ""})
-        self.client.execute("UPDATE users SET ban_status = ? WHERE id = ?", (ban_status, int(id)))
+        await client.execute("UPDATE users SET ban_status = ? WHERE id = ?", (ban_status, int(id)))
     
     async def ban_user(self, user_id, ban_reason="No Reason"):
+        client = await self.get_client()
         ban_status = json.dumps({"is_banned": True, "ban_reason": ban_reason})
-        self.client.execute("UPDATE users SET ban_status = ? WHERE id = ?", (ban_status, int(user_id)))
+        await client.execute("UPDATE users SET ban_status = ? WHERE id = ?", (ban_status, int(user_id)))
 
     async def get_ban_status(self, id):
+        client = await self.get_client()
         default = dict(is_banned=False, ban_reason='')
-        res = self.client.execute("SELECT ban_status FROM users WHERE id = ?", (int(id),))
+        res = await client.execute("SELECT ban_status FROM users WHERE id = ?", (int(id),))
         rows = list(res.rows)
         if not rows or not rows[0][0]:
             return default
@@ -162,7 +173,8 @@ class Database:
             return default
 
     async def get_all_users(self):
-        res = self.client.execute("SELECT id, name, ban_status FROM users")
+        client = await self.get_client()
+        res = await client.execute("SELECT id, name, ban_status FROM users")
         class CursorMock:
             def __init__(self, rows):
                 self.rows = rows
@@ -172,13 +184,16 @@ class Database:
         return CursorMock(res.rows)
     
     async def delete_user(self, user_id):
-        self.client.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
+        client = await self.get_client()
+        await client.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
         
     async def delete_chat(self, id):
-        self.client.execute("DELETE FROM groups WHERE id = ?", (int(id),))    
+        client = await self.get_client()
+        await client.execute("DELETE FROM groups WHERE id = ?", (int(id),))    
 
     async def get_banned(self):
-        res_u = self.client.execute("SELECT id, ban_status FROM users")
+        client = await self.get_client()
+        res_u = await client.execute("SELECT id, ban_status FROM users")
         b_users = []
         for r in res_u.rows:
             try:
@@ -188,7 +203,7 @@ class Database:
             except Exception:
                 pass
 
-        res_c = self.client.execute("SELECT id, chat_status FROM groups")
+        res_c = await client.execute("SELECT id, chat_status FROM groups")
         b_chats = []
         for r in res_c.rows:
             try:
@@ -200,11 +215,13 @@ class Database:
         return b_users, b_chats
     
     async def add_chat(self, chat, title):
+        client = await self.get_client()
         chat_status = json.dumps({"is_disabled": False, "reason": ""})
-        self.client.execute("INSERT OR REPLACE INTO groups (id, title, chat_status) VALUES (?, ?, ?)", (int(chat), title, chat_status))
+        await client.execute("INSERT OR REPLACE INTO groups (id, title, chat_status) VALUES (?, ?, ?)", (int(chat), title, chat_status))
     
     async def get_chat(self, chat):
-        res = self.client.execute("SELECT chat_status FROM groups WHERE id = ?", (int(chat),))
+        client = await self.get_client()
+        res = await client.execute("SELECT chat_status FROM groups WHERE id = ?", (int(chat),))
         rows = list(res.rows)
         if not rows or not rows[0][0]:
             return False
@@ -214,14 +231,17 @@ class Database:
             return False
     
     async def re_enable_chat(self, id):
+        client = await self.get_client()
         chat_status = json.dumps({"is_disabled": False, "reason": ""})
-        self.client.execute("UPDATE groups SET chat_status = ? WHERE id = ?", (chat_status, int(id)))
+        await client.execute("UPDATE groups SET chat_status = ? WHERE id = ?", (chat_status, int(id)))
         
     async def update_settings(self, id, settings):
+        client = await self.get_client()
         settings_str = json.dumps(settings)
-        self.client.execute("UPDATE groups SET settings = ? WHERE id = ?", (settings_str, int(id)))
+        await client.execute("UPDATE groups SET settings = ? WHERE id = ?", (settings_str, int(id)))
                                   
     async def get_settings(self, id):
+        client = await self.get_client()
         default = {
             'button': BUTTON_MODE,
             'botpm': P_TTI_SHOW_OFF,
@@ -249,7 +269,7 @@ class Database:
             'caption': CUSTOM_FILE_CAPTION,
             'fsub': AUTH_CHANNELS
         }
-        res = self.client.execute("SELECT settings FROM groups WHERE id = ?", (int(id),))
+        res = await client.execute("SELECT settings FROM groups WHERE id = ?", (int(id),))
         rows = list(res.rows)
         if rows and rows[0][0]:
             try:
@@ -261,11 +281,12 @@ class Database:
 
     async def dreamx_reset_settings(self):
         try:
-            res = self.client.execute("SELECT id, settings FROM groups")
+            client = await self.get_client()
+            res = await client.execute("SELECT id, settings FROM groups")
             count = 0
             for r in res.rows:
                 if r[1]:
-                    self.client.execute("UPDATE groups SET settings = NULL WHERE id = ?", (r[0],))
+                    await client.execute("UPDATE groups SET settings = NULL WHERE id = ?", (r[0],))
                     count += 1
             return count
         except Exception as e:
@@ -273,15 +294,18 @@ class Database:
             raise
 
     async def disable_chat(self, chat, reason="No Reason"):
+        client = await self.get_client()
         chat_status = json.dumps({"is_disabled": True, "reason": reason})
-        self.client.execute("UPDATE groups SET chat_status = ? WHERE id = ?", (chat_status, int(chat)))
+        await client.execute("UPDATE groups SET chat_status = ? WHERE id = ?", (chat_status, int(chat)))
 
     async def total_chat_count(self):
-        res = self.client.execute("SELECT COUNT(*) FROM groups")
+        client = await self.get_client()
+        res = await client.execute("SELECT COUNT(*) FROM groups")
         return list(res.rows)[0][0]
     
     async def get_all_chats(self):
-        res = self.client.execute("SELECT id, title, chat_status, settings FROM groups")
+        client = await self.get_client()
+        res = await client.execute("SELECT id, title, chat_status, settings FROM groups")
         class CursorMock:
             def __init__(self, rows):
                 self.rows = rows
@@ -294,7 +318,8 @@ class Database:
         return 0
 
     async def get_user(self, user_id):
-        res = self.client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE id = ?", (int(user_id),))
+        client = await self.get_client()
+        res = await client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE id = ?", (int(user_id),))
         rows = list(res.rows)
         if not rows:
             return None
@@ -305,22 +330,24 @@ class Database:
         }
 
     async def update_user(self, user_data):
+        client = await self.get_client()
         uid = int(user_data["id"])
         exp = user_data.get("expiry_time")
         exp_str = exp.isoformat() if isinstance(exp, datetime.datetime) else None
         trial = 1 if user_data.get("has_free_trial") else 0
-        self.client.execute("INSERT OR REPLACE INTO premium_users (id, expiry_time, has_free_trial) VALUES (?, ?, ?)", (uid, exp_str, trial))
+        await client.execute("INSERT OR REPLACE INTO premium_users (id, expiry_time, has_free_trial) VALUES (?, ?, ?)", (uid, exp_str, trial))
   
     async def get_notcopy_user(self, user_id):
+        client = await self.get_client()
         user_id = int(user_id)
-        res = self.client.execute("SELECT last_verified, second_time_verified, third_time_verified FROM misc WHERE user_id = ?", (user_id,))
+        res = await client.execute("SELECT last_verified, second_time_verified, third_time_verified FROM misc WHERE user_id = ?", (user_id,))
         rows = list(res.rows)
         ist_timezone = pytz.timezone('Asia/Kolkata')
         if not rows:
             lv = datetime.datetime(2020, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
             stv = datetime.datetime(2019, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
             ttv = datetime.datetime(2018, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
-            self.client.execute("INSERT OR REPLACE INTO misc (user_id, last_verified, second_time_verified, third_time_verified) VALUES (?, ?, ?, ?)", (user_id, lv, stv, ttv))
+            await client.execute("INSERT OR REPLACE INTO misc (user_id, last_verified, second_time_verified, third_time_verified) VALUES (?, ?, ?, ?)", (user_id, lv, stv, ttv))
             return {
                 "user_id": user_id,
                 "last_verified": datetime.datetime(2020, 5, 17, 0, 0, 0, tzinfo=ist_timezone),
@@ -337,6 +364,7 @@ class Database:
             }
 
     async def update_notcopy_user(self, user_id, value: dict):
+        client = await self.get_client()
         user_id = int(user_id)
         current = await self.get_notcopy_user(user_id)
         lv = value.get("last_verified", current["last_verified"])
@@ -347,7 +375,7 @@ class Database:
         stv_str = stv.isoformat() if isinstance(stv, datetime.datetime) else stv
         ttv_str = ttv.isoformat() if isinstance(ttv, datetime.datetime) else ttv
         
-        self.client.execute("INSERT OR REPLACE INTO misc (user_id, last_verified, second_time_verified, third_time_verified) VALUES (?, ?, ?, ?)", (user_id, lv_str, stv_str, ttv_str))
+        await client.execute("INSERT OR REPLACE INTO misc (user_id, last_verified, second_time_verified, third_time_verified) VALUES (?, ?, ?, ?)", (user_id, lv_str, stv_str, ttv_str))
         return True
 
     async def is_user_verified(self, user_id):
@@ -409,22 +437,26 @@ class Database:
         return False
    
     async def create_verify_id(self, user_id: int, hash):
-        self.client.execute("INSERT OR REPLACE INTO verify_id (user_id, hash, verified) VALUES (?, ?, 0)", (user_id, hash))
+        client = await self.get_client()
+        await client.execute("INSERT OR REPLACE INTO verify_id (user_id, hash, verified) VALUES (?, ?, 0)", (user_id, hash))
         return True
 
     async def get_verify_id_info(self, user_id: int, hash):
-        res = self.client.execute("SELECT user_id, hash, verified FROM verify_id WHERE user_id = ? AND hash = ?", (user_id, hash))
+        client = await self.get_client()
+        res = await client.execute("SELECT user_id, hash, verified FROM verify_id WHERE user_id = ? AND hash = ?", (user_id, hash))
         rows = list(res.rows)
         if not rows:
             return None
         return {"user_id": rows[0][0], "hash": rows[0][1], "verified": bool(rows[0][2])}
 
     async def update_verify_id_info(self, user_id, hash, value: dict):
+        client = await self.get_client()
         v = 1 if value.get("verified") else 0
-        self.client.execute("UPDATE verify_id SET verified = ? WHERE user_id = ? AND hash = ?", (v, user_id, hash))
+        await client.execute("UPDATE verify_id SET verified = ? WHERE user_id = ? AND hash = ?", (v, user_id, hash))
         return True
         
     async def has_premium_access(self, user_id):
+        client = await self.get_client()
         user_data = await self.get_user(user_id)
         if user_data:
             expiry_time = user_data.get("expiry_time")
@@ -433,25 +465,27 @@ class Database:
             elif isinstance(expiry_time, datetime.datetime) and datetime.datetime.now() <= expiry_time:
                 return True
             else:
-                self.client.execute("UPDATE premium_users SET expiry_time = NULL WHERE id = ?", (int(user_id),))
+                await client.execute("UPDATE premium_users SET expiry_time = NULL WHERE id = ?", (int(user_id),))
         return False
 
     async def update_one(self, filter_query, update_data):
         try:
+            client = await self.get_client()
             uid = filter_query.get("id")
             if "$set" in update_data:
                 for k, v in update_data["$set"].items():
                     if k == "expiry_time":
                         v_str = v.isoformat() if isinstance(v, datetime.datetime) else None
-                        self.client.execute("UPDATE premium_users SET expiry_time = ? WHERE id = ?", (v_str, int(uid)))
+                        await client.execute("UPDATE premium_users SET expiry_time = ? WHERE id = ?", (v_str, int(uid)))
             return True
         except Exception as e:
             print(f"Error updating document: {e}")
             return False
 
     async def get_expired(self, current_time):
+        client = await self.get_client()
         expired_users = []
-        res = self.client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE expiry_time IS NOT NULL")
+        res = await client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE expiry_time IS NOT NULL")
         for r in res.rows:
             if r[1]:
                 exp = datetime.datetime.fromisoformat(r[1])
@@ -460,7 +494,8 @@ class Database:
         return expired_users
 
     async def remove_premium_access(self, user_id):
-        self.client.execute("UPDATE premium_users SET expiry_time = NULL WHERE id = ?", (int(user_id),))
+        client = await self.get_client()
+        await client.execute("UPDATE premium_users SET expiry_time = NULL WHERE id = ?", (int(user_id),))
         return True
 
     async def check_trial_status(self, user_id):
@@ -470,13 +505,15 @@ class Database:
         return False
 
     async def give_free_trial(self, user_id):
+        client = await self.get_client()
         seconds = 5 * 60         
         expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
         exp_str = expiry_time.isoformat()
-        self.client.execute("INSERT OR REPLACE INTO premium_users (id, expiry_time, has_free_trial) VALUES (?, ?, 1)", (int(user_id), exp_str))
+        await client.execute("INSERT OR REPLACE INTO premium_users (id, expiry_time, has_free_trial) VALUES (?, ?, 1)", (int(user_id), exp_str))
         
     async def all_premium_users(self):
-        res = self.client.execute("SELECT expiry_time FROM premium_users WHERE expiry_time IS NOT NULL")
+        client = await self.get_client()
+        res = await client.execute("SELECT expiry_time FROM premium_users WHERE expiry_time IS NOT NULL")
         now = datetime.datetime.now()
         count = 0
         for r in res.rows:
@@ -487,7 +524,8 @@ class Database:
         return count
     
     async def get_bot_setting(self, bot_id, setting_key, default_value):
-        res = self.client.execute("SELECT value FROM bot_settings WHERE id = ? AND key = ?", (int(bot_id), setting_key))
+        client = await self.get_client()
+        res = await client.execute("SELECT value FROM bot_settings WHERE id = ? AND key = ?", (int(bot_id), setting_key))
         rows = list(res.rows)
         if not rows:
             return default_value
@@ -497,11 +535,13 @@ class Database:
             return rows[0][0]
         
     async def update_bot_setting(self, bot_id, setting_key, value):
+        client = await self.get_client()
         val_str = json.dumps(value)
-        self.client.execute("INSERT OR REPLACE INTO bot_settings (id, key, value) VALUES (?, ?, ?)", (int(bot_id), setting_key, val_str))
+        await client.execute("INSERT OR REPLACE INTO bot_settings (id, key, value) VALUES (?, ?, ?)", (int(bot_id), setting_key, val_str))
 
     async def connect_group(self, group_id, user_id):
-        res = self.client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
+        client = await self.get_client()
+        res = await client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
         rows = list(res.rows)
         if rows and rows[0][0]:
             try:
@@ -510,12 +550,13 @@ class Database:
                 g_list = []
             if group_id not in g_list:
                 g_list.append(group_id)
-                self.client.execute("UPDATE connections SET group_ids = ? WHERE user_id = ?", (json.dumps(g_list), int(user_id)))
+                await client.execute("UPDATE connections SET group_ids = ? WHERE user_id = ?", (json.dumps(g_list), int(user_id)))
         else:
-            self.client.execute("INSERT OR REPLACE INTO connections (user_id, group_ids) VALUES (?, ?)", (int(user_id), json.dumps([group_id])))
+            await client.execute("INSERT OR REPLACE INTO connections (user_id, group_ids) VALUES (?, ?)", (int(user_id), json.dumps([group_id])))
 
     async def get_connected_grps(self, user_id):
-        res = self.client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
+        client = await self.get_client()
+        res = await client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
         rows = list(res.rows)
         if rows and rows[0][0]:
             try:
@@ -525,14 +566,15 @@ class Database:
         return []
         
     async def remove_group_connection(self, group_id, user_id):
-        res = self.client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
+        client = await self.get_client()
+        res = await client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
         rows = list(res.rows)
         if rows and rows[0][0]:
             try:
                 g_list = json.loads(rows[0][0])
                 if group_id in g_list:
                     g_list.remove(group_id)
-                    self.client.execute("UPDATE connections SET group_ids = ? WHERE user_id = ?", (json.dumps(g_list), int(user_id)))
+                    await client.execute("UPDATE connections SET group_ids = ? WHERE user_id = ?", (json.dumps(g_list), int(user_id)))
             except Exception:
                 pass
 

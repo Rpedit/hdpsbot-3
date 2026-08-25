@@ -88,7 +88,7 @@ class Database:
         try:
             client = await self.get_client()
             res = await client.execute("SELECT 1 FROM movie_updates WHERE filename = ?", (filename,))
-            if list(res.rows):
+            if getattr(res, 'rows', None) and list(res.rows):
                 return False
             await client.execute("INSERT INTO movie_updates (filename) VALUES (?)", (filename,))
             return True
@@ -104,7 +104,7 @@ class Database:
     async def find_join_req(self, id):
         client = await self.get_client()
         res = await client.execute("SELECT 1 FROM requests WHERE id = ?", (id,))
-        return len(list(res.rows)) > 0
+        return bool(getattr(res, 'rows', None) and list(res.rows))
      
     async def add_join_req(self, id):
         client = await self.get_client()
@@ -143,12 +143,13 @@ class Database:
     async def is_user_exist(self, id):
         client = await self.get_client()
         res = await client.execute("SELECT 1 FROM users WHERE id = ?", (int(id),))
-        return len(list(res.rows)) > 0
+        return bool(getattr(res, 'rows', None) and list(res.rows))
     
     async def total_users_count(self):
         client = await self.get_client()
         res = await client.execute("SELECT COUNT(*) FROM users")
-        return list(res.rows)[0][0]
+        rows = getattr(res, 'rows', None)
+        return rows[0][0] if rows else 0
     
     async def remove_ban(self, id):
         client = await self.get_client()
@@ -164,7 +165,7 @@ class Database:
         client = await self.get_client()
         default = dict(is_banned=False, ban_reason='')
         res = await client.execute("SELECT ban_status FROM users WHERE id = ?", (int(id),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if not rows or not rows[0][0]:
             return default
         try:
@@ -175,13 +176,14 @@ class Database:
     async def get_all_users(self):
         client = await self.get_client()
         res = await client.execute("SELECT id, name, ban_status FROM users")
+        rows = getattr(res, 'rows', None) or []
         class CursorMock:
             def __init__(self, rows):
                 self.rows = rows
             async def __aiter__(self):
                 for row in self.rows:
                     yield {"id": row[0], "name": row[1], "ban_status": json.loads(row[2]) if row[2] else {}}
-        return CursorMock(res.rows)
+        return CursorMock(rows)
     
     async def delete_user(self, user_id):
         client = await self.get_client()
@@ -194,27 +196,34 @@ class Database:
     async def get_banned(self):
         try:
             client = await self.get_client()
-            res_u = await client.execute("SELECT id, ban_status FROM users")
             b_users = []
-            if hasattr(res_u, 'rows') and res_u.rows:
-                for r in res_u.rows:
-                    try:
-                        bs = json.loads(r[1]) if r[1] else {}
-                        if bs.get('is_banned'):
-                            b_users.append(r[0])
-                    except Exception:
-                        pass
-
-            res_c = await client.execute("SELECT id, chat_status FROM groups")
             b_chats = []
-            if hasattr(res_c, 'rows') and res_c.rows:
-                for r in res_c.rows:
-                    try:
-                        cs = json.loads(r[1]) if r[1] else {}
-                        if cs.get('is_disabled'):
-                            b_chats.append(r[0])
-                    except Exception:
-                        pass
+            try:
+                res_u = await client.execute("SELECT id, ban_status FROM users")
+                if getattr(res_u, 'rows', None):
+                    for r in res_u.rows:
+                        try:
+                            bs = json.loads(r[1]) if r[1] else {}
+                            if bs.get('is_banned'):
+                                b_users.append(r[0])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            try:
+                res_c = await client.execute("SELECT id, chat_status FROM groups")
+                if getattr(res_c, 'rows', None):
+                    for r in res_c.rows:
+                        try:
+                            cs = json.loads(r[1]) if r[1] else {}
+                            if cs.get('is_disabled'):
+                                b_chats.append(r[0])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             return b_users, b_chats
         except Exception as e:
             print(f"get_banned error (ignoring for startup): {e}")
@@ -228,7 +237,7 @@ class Database:
     async def get_chat(self, chat):
         client = await self.get_client()
         res = await client.execute("SELECT chat_status FROM groups WHERE id = ?", (int(chat),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if not rows or not rows[0][0]:
             return False
         try:
@@ -276,7 +285,7 @@ class Database:
             'fsub': AUTH_CHANNELS
         }
         res = await client.execute("SELECT settings FROM groups WHERE id = ?", (int(id),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if rows and rows[0][0]:
             try:
                 return json.loads(rows[0][0])
@@ -290,7 +299,8 @@ class Database:
             client = await self.get_client()
             res = await client.execute("SELECT id, settings FROM groups")
             count = 0
-            for r in res.rows:
+            rows = getattr(res, 'rows', None) or []
+            for r in rows:
                 if r[1]:
                     await client.execute("UPDATE groups SET settings = NULL WHERE id = ?", (r[0],))
                     count += 1
@@ -307,18 +317,20 @@ class Database:
     async def total_chat_count(self):
         client = await self.get_client()
         res = await client.execute("SELECT COUNT(*) FROM groups")
-        return list(res.rows)[0][0]
+        rows = getattr(res, 'rows', None)
+        return rows[0][0] if rows else 0
     
     async def get_all_chats(self):
         client = await self.get_client()
         res = await client.execute("SELECT id, title, chat_status, settings FROM groups")
+        rows = getattr(res, 'rows', None) or []
         class CursorMock:
             def __init__(self, rows):
                 self.rows = rows
             async def __aiter__(self):
                 for row in self.rows:
                     yield {"id": row[0], "title": row[1], "chat_status": json.loads(row[2]) if row[2] else {}, "settings": json.loads(row[3]) if row[3] else {}}
-        return CursorMock(res.rows)
+        return CursorMock(rows)
 
     async def get_db_size(self):
         return 0
@@ -326,7 +338,7 @@ class Database:
     async def get_user(self, user_id):
         client = await self.get_client()
         res = await client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE id = ?", (int(user_id),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if not rows:
             return None
         return {
@@ -347,7 +359,7 @@ class Database:
         client = await self.get_client()
         user_id = int(user_id)
         res = await client.execute("SELECT last_verified, second_time_verified, third_time_verified FROM misc WHERE user_id = ?", (user_id,))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         ist_timezone = pytz.timezone('Asia/Kolkata')
         if not rows:
             lv = datetime.datetime(2020, 5, 17, 0, 0, 0, tzinfo=ist_timezone).isoformat()
@@ -450,7 +462,7 @@ class Database:
     async def get_verify_id_info(self, user_id: int, hash):
         client = await self.get_client()
         res = await client.execute("SELECT user_id, hash, verified FROM verify_id WHERE user_id = ? AND hash = ?", (user_id, hash))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if not rows:
             return None
         return {"user_id": rows[0][0], "hash": rows[0][1], "verified": bool(rows[0][2])}
@@ -492,7 +504,8 @@ class Database:
         client = await self.get_client()
         expired_users = []
         res = await client.execute("SELECT id, expiry_time, has_free_trial FROM premium_users WHERE expiry_time IS NOT NULL")
-        for r in res.rows:
+        rows = getattr(res, 'rows', None) or []
+        for r in rows:
             if r[1]:
                 exp = datetime.datetime.fromisoformat(r[1])
                 if exp < current_time:
@@ -522,7 +535,8 @@ class Database:
         res = await client.execute("SELECT expiry_time FROM premium_users WHERE expiry_time IS NOT NULL")
         now = datetime.datetime.now()
         count = 0
-        for r in res.rows:
+        rows = getattr(res, 'rows', None) or []
+        for r in rows:
             if r[0]:
                 exp = datetime.datetime.fromisoformat(r[0])
                 if exp > now:
@@ -532,7 +546,7 @@ class Database:
     async def get_bot_setting(self, bot_id, setting_key, default_value):
         client = await self.get_client()
         res = await client.execute("SELECT value FROM bot_settings WHERE id = ? AND key = ?", (int(bot_id), setting_key))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if not rows:
             return default_value
         try:
@@ -548,7 +562,7 @@ class Database:
     async def connect_group(self, group_id, user_id):
         client = await self.get_client()
         res = await client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if rows and rows[0][0]:
             try:
                 g_list = json.loads(rows[0][0])
@@ -563,7 +577,7 @@ class Database:
     async def get_connected_grps(self, user_id):
         client = await self.get_client()
         res = await client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if rows and rows[0][0]:
             try:
                 return json.loads(rows[0][0])
@@ -574,7 +588,7 @@ class Database:
     async def remove_group_connection(self, group_id, user_id):
         client = await self.get_client()
         res = await client.execute("SELECT group_ids FROM connections WHERE user_id = ?", (int(user_id),))
-        rows = list(res.rows)
+        rows = list(res.rows) if getattr(res, 'rows', None) else []
         if rows and rows[0][0]:
             try:
                 g_list = json.loads(rows[0][0])

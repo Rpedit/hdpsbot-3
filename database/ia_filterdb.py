@@ -14,37 +14,51 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 #---------------------------------------------------------
 
-# Turso Client connection initialize karna
-client = libsql_client.create_client(url=LIBSQL_URL, auth_token=LIBSQL_AUTH_TOKEN)
+class TursoDB:
+    def __init__(self, url, auth_token):
+        self.url = url
+        self.auth_token = auth_token
+        self._client = None
 
-# Tables create karna agar pehle se nahi bani hain
-client.execute("""
-    CREATE TABLE IF NOT EXISTS media (
-        file_id TEXT PRIMARY KEY,
-        file_ref TEXT,
-        file_name TEXT NOT NULL,
-        file_size INTEGER NOT NULL,
-        file_type TEXT,
-        mime_type TEXT,
-        caption TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-""")
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
+            self._create_tables()
+        return self._client
 
-client.execute("""
-    CREATE TABLE IF NOT EXISTS media2 (
-        file_id TEXT PRIMARY KEY,
-        file_ref TEXT,
-        file_name TEXT NOT NULL,
-        file_size INTEGER NOT NULL,
-        file_type TEXT,
-        mime_type TEXT,
-        caption TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-""")
+    def _create_tables(self):
+        try:
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS media (
+                    file_id TEXT PRIMARY KEY,
+                    file_ref TEXT,
+                    file_name TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    file_type TEXT,
+                    mime_type TEXT,
+                    caption TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS media2 (
+                    file_id TEXT PRIMARY KEY,
+                    file_ref TEXT,
+                    file_name TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    file_type TEXT,
+                    mime_type TEXT,
+                    caption TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        except Exception as e:
+            logger.error(f"Media table creation error: {e}")
 
-# Helper class mongodb document jaisa object provide karne ke liye
+# Turso DB object initialize karna (lazy-load)
+db_client = TursoDB(LIBSQL_URL, LIBSQL_AUTH_TOKEN)
+
 class MediaRecord:
     def __init__(self, row):
         self.file_id = row[0]
@@ -67,18 +81,17 @@ async def save_file(media):
     
     if MULTIPLE_DB:
         try:
-            res = client.execute("SELECT 1 FROM media WHERE file_id = ? LIMIT 1", (file_id,))
+            res = db_client.client.execute("SELECT 1 FROM media WHERE file_id = ? LIMIT 1", (file_id,))
             if list(res.rows):
                 logger.info(f"[SKIP] '{file_name}' already in Primary DB.")
                 return False, 0
-            # Turso me storage check ki zaroorat nahi kyunki 5GB free limit hai
         except Exception as e:
             logger.error("Error during MULTIPLE_DB check; defaulting to primary DB.", exc_info=e)
 
     caption_text = (media.caption.html if media.caption and INDEX_CAPTION else None)
 
     try:
-        client.execute(f"""
+        db_client.client.execute(f"""
             INSERT OR IGNORE INTO {table_name} 
             (file_id, file_ref, file_name, file_size, file_type, mime_type, caption) 
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -103,7 +116,6 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
     if max_results % 2:         
         max_results += 1
 
-    # SQL Like query banana search ke liye
     if isinstance(query, list):
         search_terms = [q.strip() for q in query if q.strip()]
     else:
@@ -134,23 +146,21 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
             sql_query += " WHERE file_type = ?"
         params.append(file_type)
 
-    # Count total results
     count_sql = sql_query.replace("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption", "SELECT COUNT(*)")
-    total_res = client.execute(count_sql, params)
+    total_res = db_client.client.execute(count_sql, params)
     total_results = list(total_res.rows)[0][0]
 
-    # Add pagination
     sql_query += " ORDER BY rowid DESC LIMIT ? OFFSET ?"
     params.extend([max_results, offset])
 
-    cursor1 = client.execute(sql_query, params)
+    cursor1 = db_client.client.execute(sql_query, params)
     files1 = [MediaRecord(row) for row in cursor1.rows]
 
     files = files1
     if MULTIPLE_DB:
         remaining = max_results - len(files1)
         if remaining > 0:
-            cursor2 = client.execute(sql_query.replace("FROM media", "FROM media2"), params)
+            cursor2 = db_client.client.execute(sql_query.replace("FROM media", "FROM media2"), params)
             files2 = [MediaRecord(row) for row in cursor2.rows]
             files = files1 + files2
 
@@ -160,7 +170,6 @@ async def get_search_results(chat_id, query, file_type=None, max_results=10, off
     return files, next_offset, total_results
 
 async def get_bad_files(query, file_type=None, filter=False):
-    """For given query return (results, next_offset)"""
     query = query.strip()
     like_term = f"%{query}%" if query else "%"
     
@@ -176,15 +185,15 @@ async def get_bad_files(query, file_type=None, filter=False):
         params.append(file_type)
 
     sql += " ORDER BY rowid DESC"
-    cursor = client.execute(sql, params)
+    cursor = db_client.client.execute(sql, params)
     files = [MediaRecord(row) for row in cursor.rows]
     return files, len(files)
 
 async def get_file_details(query):
-    cursor = client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_id = ?", (query,))
+    cursor = db_client.client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media WHERE file_id = ?", (query,))
     filedetails = [MediaRecord(row) for row in cursor.rows]
     if not filedetails and MULTIPLE_DB:
-        cursor2 = client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media2 WHERE file_id = ?", (query,))
+        cursor2 = db_client.client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media2 WHERE file_id = ?", (query,))
         filedetails = [MediaRecord(row) for row in cursor2.rows]
     return filedetails
 
@@ -206,7 +215,6 @@ def encode_file_ref(file_ref: bytes) -> str:
     return base64.urlsafe_b64encode(file_ref).decode().rstrip("=")
 
 def unpack_new_file_id(new_file_id):
-    """Return file_id, file_ref"""
     decoded = FileId.decode(new_file_id)
     file_id = encode_file_id(
         pack(
@@ -222,7 +230,7 @@ def unpack_new_file_id(new_file_id):
 
 async def dreamxbotz_fetch_media(limit: int) -> List[object]:
     try:
-        cursor = client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media ORDER BY rowid DESC LIMIT ?", (limit,))
+        cursor = db_client.client.execute("SELECT file_id, file_ref, file_name, file_size, file_type, mime_type, caption FROM media ORDER BY rowid DESC LIMIT ?", (limit,))
         files = [MediaRecord(row) for row in cursor.rows]
         return files
     except Exception as e:

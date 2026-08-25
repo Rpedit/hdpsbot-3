@@ -1,6 +1,6 @@
 pyrofork==2.3.69
 tgcrypto-pyrofork
-libsql
+libsql-client
 requests
 bs4
 shortzy

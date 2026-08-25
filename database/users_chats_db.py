@@ -192,27 +192,33 @@ class Database:
         await client.execute("DELETE FROM groups WHERE id = ?", (int(id),))    
 
     async def get_banned(self):
-        client = await self.get_client()
-        res_u = await client.execute("SELECT id, ban_status FROM users")
-        b_users = []
-        for r in res_u.rows:
-            try:
-                bs = json.loads(r[1]) if r[1] else {}
-                if bs.get('is_banned'):
-                    b_users.append(r[0])
-            except Exception:
-                pass
+        try:
+            client = await self.get_client()
+            res_u = await client.execute("SELECT id, ban_status FROM users")
+            b_users = []
+            if hasattr(res_u, 'rows') and res_u.rows:
+                for r in res_u.rows:
+                    try:
+                        bs = json.loads(r[1]) if r[1] else {}
+                        if bs.get('is_banned'):
+                            b_users.append(r[0])
+                    except Exception:
+                        pass
 
-        res_c = await client.execute("SELECT id, chat_status FROM groups")
-        b_chats = []
-        for r in res_c.rows:
-            try:
-                cs = json.loads(r[1]) if r[1] else {}
-                if cs.get('is_disabled'):
-                    b_chats.append(r[0])
-            except Exception:
-                pass
-        return b_users, b_chats
+            res_c = await client.execute("SELECT id, chat_status FROM groups")
+            b_chats = []
+            if hasattr(res_c, 'rows') and res_c.rows:
+                for r in res_c.rows:
+                    try:
+                        cs = json.loads(r[1]) if r[1] else {}
+                        if cs.get('is_disabled'):
+                            b_chats.append(r[0])
+                    except Exception:
+                        pass
+            return b_users, b_chats
+        except Exception as e:
+            print(f"get_banned error (ignoring for startup): {e}")
+            return [], []
     
     async def add_chat(self, chat, title):
         client = await self.get_client()

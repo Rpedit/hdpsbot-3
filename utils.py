@@ -22,8 +22,9 @@ BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
 
+# Fixed Cinemagoer initialization with correct sqlite URI format
+imdb = Cinemagoer(accessSystem='sql', uri='sqlite:///cinemagoer.db') 
 
-imdb = Cinemagoer() 
 BANNED = {}
 SMART_OPEN = '“'
 SMART_CLOSE = '”'
@@ -426,7 +427,6 @@ def extract_user(message: Message) -> Union[int, str]:
             user_first_name = required_entity.user.first_name
         else:
             user_id = message.command[1]
-            # don't want to make a request -_-
             user_first_name = user_id
         try:
             user_id = int(user_id)
@@ -773,4 +773,3 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
     except Exception as e:
         logging.error(f"Error in get_cap: {e}")
         pass
-       

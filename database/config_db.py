@@ -1,40 +1,67 @@
-from motor.motor_asyncio import AsyncIOMotorClient
-from info import DATABASE_URI
-from datetime import datetime
+import libsql_client
+from info import LIBSQL_URL, LIBSQL_AUTH_TOKEN
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 class Database:
-    def __init__(self, uri, db_name):
-        self.client = AsyncIOMotorClient(uri)
-        self.db = self.client[db_name]
-        self.col = self.db.user
-        self.config_col = self.db.configuration
+    def __init__(self, url, db_name):
+        self.url = LIBSQL_URL
+        self.auth_token = LIBSQL_AUTH_TOKEN
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = libsql_client.create_client(url=self.url, auth_token=self.auth_token)
+            self._create_tables()
+        return self._client
+
+    def _create_tables(self):
+        try:
+            self._client.execute("""
+                CREATE TABLE IF NOT EXISTS user_messages (
+                    user_id INTEGER,
+                    text TEXT,
+                    count INTEGER DEFAULT 1,
+                    PRIMARY KEY (user_id, text)
+                )
+            """)
+        except Exception as e:
+            logger.error(f"Table creation error in user_messages: {e}")
 
     async def update_top_messages(self, user_id, message_text):
-        user = await self.col.find_one({"user_id": user_id, "messages.text": message_text})
-        
-        if not user:
-            await self.col.update_one(
-                {"user_id": user_id},
-                {"$push": {"messages": {"text": message_text, "count": 1}}},
-                upsert=True
-            )
-        else:
-            await self.col.update_one(
-                {"user_id": user_id, "messages.text": message_text},
-                {"$inc": {"messages.$.count": 1}}
-            )
+        try:
+            # SQLite / Turso ka ON CONFLICT upsert use kiya gaya hai
+            self.client.execute("""
+                INSERT INTO user_messages (user_id, text, count) 
+                VALUES (?, ?, 1)
+                ON CONFLICT(user_id, text) DO UPDATE SET count = count + 1
+            """, (int(user_id), message_text))
+        except Exception as e:
+            logger.error(f"Error updating top messages: {e}")
 
     async def get_top_messages(self, limit=30):
-        pipeline = [
-            {"$unwind": "$messages"},
-            {"$group": {"_id": "$messages.text", "count": {"$sum": "$messages.count"}}},
-            {"$sort": {"count": -1}},
-            {"$limit": limit}
-        ]
-        results = await self.col.aggregate(pipeline).to_list(limit)
-        return [result['_id'] for result in results]
+        try:
+            res = self.client.execute("""
+                SELECT text FROM user_messages 
+                GROUP BY text 
+                ORDER BY SUM(count) DESC 
+                LIMIT ?
+            """, (int(limit),))
+            return [row[0] for row in res.rows]
+        except Exception as e:
+            logger.error(f"Error getting top messages: {e}")
+            return []
     
     async def delete_all_messages(self):
-        await self.col.delete_many({})
+        try:
+            self.client.execute("DELETE FROM user_messages")
+            print("All filenames notification / messages have been deleted.")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting messages: {e}")
+            return False
 
-mdb = Database(DATABASE_URI, "admin_database")
+mdb = Database(LIBSQL_URL, "admin_database")

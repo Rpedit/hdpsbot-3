@@ -19,7 +19,7 @@ class Database:
 
     async def _create_tables(self):
         try:
-            client = self._client
+            client = await self.get_client()
             await client.execute("""
                 CREATE TABLE IF NOT EXISTS user_messages (
                     user_id INTEGER,
@@ -34,7 +34,6 @@ class Database:
     async def update_top_messages(self, user_id, message_text):
         try:
             client = await self.get_client()
-            # SQLite / Turso ka ON CONFLICT upsert use kiya gaya hai (await ke sath)
             await client.execute("""
                 INSERT INTO user_messages (user_id, text, count) 
                 VALUES (?, ?, 1)
